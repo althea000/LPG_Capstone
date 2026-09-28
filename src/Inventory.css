@@ -99,8 +99,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  background: #0082fb;
-  color: #ffffff;
+  background: #0080FF !important; 
+  color: #ffffff !important;    
   border: none;
   border-radius: 8px;
   padding: 10px 16px;
@@ -108,10 +108,21 @@
   font-weight: 700;
   cursor: pointer;
   white-space: nowrap;
+  opacity: 1 !important;           /* Stops the button from fading */
 }
 
+/* Darker hover state for #111827 */
 .action-btn:hover {
-  background: #006dd2;
+  background: #0e5fd2d8 !important; 
+}
+
+/* Prevents fading and color loss if the button has a disabled attribute */
+.action-btn:disabled,
+.action-btn[disabled] {
+  background: #111827 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+  cursor: pointer;
 }
 
 /* ---------------------------------------------------------------------- */
