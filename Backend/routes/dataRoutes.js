@@ -7,6 +7,36 @@ const { buildCsv, buildXlsx, buildPdf } = require("../utils/fileGenerators");
 const { resolveDateRange } = require("../utils/dateRanges");
 const { getAnnualReportData, buildAnnualReportXlsx, buildAnnualReportPdf } = require("../utils/annualReport");
 
+
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const normalizedPrefix = String(prefix || "").toUpperCase();
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern`,
+    { pattern: `${normalizedPrefix}%` }
+  );
+
+  let max = 0;
+  const matcher = new RegExp(`^${normalizedPrefix}-?([0-9]+)$`);
+  for (const row of rows) {
+    const candidate = String(row.id || "").toUpperCase();
+    const match = candidate.match(matcher);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+
+  let next = max + 1;
+  while (true) {
+    const candidateId = `${normalizedPrefix}-${String(next).padStart(pad, "0")}`;
+    const [existsRows] = await conn.query(
+      `SELECT ${column} AS id FROM ${table} WHERE ${column} = :id LIMIT 1`,
+      { id: candidateId }
+    );
+    if (!existsRows[0]) return candidateId;
+    next += 1;
+  }
+}
+
 router.use(authenticate);
 
 // GET /data/logs?activityType=Export|Import|Generate Report
@@ -145,11 +175,16 @@ router.post(
       if (format === "CSV") {
         throw new ApiError(400, "Annual Report must follow the AR-E-2 structure and can only be exported as Excel or PDF.");
       }
-      if (!year || !brandId) {
+      if (year == null || brandId == null || String(brandId).trim() === "") {
         throw new ApiError(400, "year and brandId are required for Annual Report.");
       }
 
-      const reportData = await getAnnualReportData(pool, brandId, Number(year));
+      const parsedYear = Number(year);
+      if (!Number.isInteger(parsedYear) || parsedYear < 1900 || parsedYear > 9999) {
+        throw new ApiError(400, "year must be a valid 4-digit number for Annual Report.");
+      }
+
+      const reportData = await getAnnualReportData(pool, String(brandId), parsedYear);
 
       const [[settingsRow]] = await pool.query(
         `SELECT FullName, ContactEmail FROM CompanySettings WHERE CompanyID = :companyId`,
@@ -180,10 +215,11 @@ router.post(
 
       const fileName = `AR-E-2_${reportData.brandName.replace(/\s+/g, "_")}_${year}.${extension}`;
 
+      const dataActivityId = await nextId(pool, "DataActivityLog", "DataActivityID", "DA");
       await pool.query(
-        `INSERT INTO DataActivityLog (UserID, ActivityType, DataType, FileName, FileFormat, DateFrom, DateTo, Status)
-         VALUES (:userId, 'Export', 'Annual Report', :fileName, :format, :start, :end, 'Successful')`,
-        { userId: req.user.userId, fileName, format, start: `${year}-01-01`, end: `${year}-12-31` }
+        `INSERT INTO DataActivityLog (DataActivityID, UserID, ActivityType, DataType, FileName, FileFormat, DateFrom, DateTo, Status)
+         VALUES (:dataActivityId, :userId, 'Export', 'Annual Report', :fileName, :format, :start, :end, 'Successful')`,
+        { dataActivityId, userId: req.user.userId, fileName, format, start: `${year}-01-01`, end: `${year}-12-31` }
       );
 
       return res.status(201).json({
@@ -222,10 +258,11 @@ router.post(
 
     const fileName = `${dataType.replace(/\s+/g, "_")}_${Date.now()}.${extension}`;
 
+    const dataActivityId = await nextId(pool, "DataActivityLog", "DataActivityID", "DA");
     await pool.query(
-      `INSERT INTO DataActivityLog (UserID, ActivityType, DataType, FileName, FileFormat, DateFrom, DateTo, Status)
-       VALUES (:userId, 'Export', :dataType, :fileName, :format, :start, :end, 'Successful')`,
-      { userId: req.user.userId, dataType, fileName, format, start, end }
+      `INSERT INTO DataActivityLog (DataActivityID, UserID, ActivityType, DataType, FileName, FileFormat, DateFrom, DateTo, Status)
+       VALUES (:dataActivityId, :userId, 'Export', :dataType, :fileName, :format, :start, :end, 'Successful')`,
+      { dataActivityId, userId: req.user.userId, dataType, fileName, format, start, end }
     );
 
     res.status(201).json({
@@ -243,12 +280,13 @@ router.post(
   asyncHandler(async (req, res) => {
     const { dataType, fileName, format } = req.body;
     if (!dataType || !fileName) throw new ApiError(400, "dataType and fileName are required.");
-    const [result] = await pool.query(
-      `INSERT INTO DataActivityLog (UserID, ActivityType, DataType, FileName, FileFormat, Status)
-       VALUES (:userId, 'Import', :dataType, :fileName, :format, 'Successful')`,
-      { userId: req.user.userId, dataType, fileName, format: format || "CSV" }
+    const dataActivityId = await nextId(pool, "DataActivityLog", "DataActivityID", "DA");
+    await pool.query(
+      `INSERT INTO DataActivityLog (DataActivityID, UserID, ActivityType, DataType, FileName, FileFormat, Status)
+       VALUES (:dataActivityId, :userId, 'Import', :dataType, :fileName, :format, 'Successful')`,
+      { dataActivityId, userId: req.user.userId, dataType, fileName, format: format || "CSV" }
     );
-    res.status(201).json({ id: result.insertId });
+    res.status(201).json({ id: dataActivityId });
   })
 );
 

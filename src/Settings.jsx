@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiRequest } from "./api";
+import { clearReceiptSettingsCache } from "./utils/receipt";
 import "./Settings.css";
 
 const emptySettings = {
@@ -70,6 +71,7 @@ export default function Settings() {
         method: "PUT",
         body: JSON.stringify(payload),
       });
+      clearReceiptSettingsCache();
       flashSaved(result.message);
     } catch (err) {
       setSaveError(err.message || "Failed to save settings.");
@@ -105,6 +107,7 @@ export default function Settings() {
           method: "PUT",
           body: JSON.stringify({ logoDataUrl: dataUrl }),
         });
+        clearReceiptSettingsCache();
         flashSaved(result.message);
       } catch (err) {
         setSaveError(err.message || "Failed to upload logo.");

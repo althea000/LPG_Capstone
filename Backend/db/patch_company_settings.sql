@@ -1,12 +1,10 @@
--- No settings table exists in the original schema. One row per company holds
--- everything the Settings page edits.
 CREATE TABLE IF NOT EXISTS CompanySettings (
-  CompanyID INT PRIMARY KEY,
+  CompanyID VARCHAR(20) PRIMARY KEY, -- Changed from INT to VARCHAR(20)
   FullName VARCHAR(150) NULL,
   Address VARCHAR(255) NULL,
   ContactEmail VARCHAR(150) NULL,
   Phone VARCHAR(30) NULL,
-  LogoDataUrl LONGTEXT NULL, -- base64 data: URL, simplest option without a file storage service
+  LogoDataUrl LONGTEXT NULL,
 
   TaxRate DECIMAL(5,2) NOT NULL DEFAULT 12.00,
   TaxEnabled TINYINT(1) NOT NULL DEFAULT 1,

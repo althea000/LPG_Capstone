@@ -5,6 +5,21 @@ const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 const { getRestockPredictions } = require("../utils/mlClient");
 
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern ORDER BY ${column} DESC LIMIT 500`,
+    { pattern: `${prefix}-%` }
+  );
+  let max = 0;
+  for (const row of rows) {
+    const match = String(row.id || "").match(new RegExp(`^${prefix}-(\\d+)$`));
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+  return `${prefix}-${String(max + 1).padStart(pad, "0")}`;
+}
+
 router.use(authenticate);
 
 // Builds the feature payload the ML service expects for a single product.
@@ -155,11 +170,13 @@ router.post(
           prediction?.recommendedQuantity ?? Math.max(row.ReorderLevel * 2 - row.stockOnHand, row.ReorderLevel);
         const confidence = prediction?.confidence ?? null;
 
-        const [result] = await pool.query(
+        const restockId = await nextId(pool, "RestockRecommendation", "RestockID", "R");
+        await pool.query(
           `INSERT INTO RestockRecommendation
-            (ProductID, SupplierID, StockOnHand, PredictedDemand, RecommendedQuantity, Confidence, ForecastDate, Status)
-           VALUES (:productId, :supplierId, :stock, :predicted, :recommended, :confidence, CURDATE(), 'Pending')`,
+            (RestockID, ProductID, SupplierID, StockOnHand, PredictedDemand, RecommendedQuantity, Confidence, ForecastDate, Status)
+           VALUES (:restockId, :productId, :supplierId, :stock, :predicted, :recommended, :confidence, CURDATE(), 'Pending')`,
           {
+            restockId,
             productId: row.ProductID,
             supplierId: row.SupplierID,
             stock: row.stockOnHand,
@@ -168,7 +185,7 @@ router.post(
             confidence,
           }
         );
-        created.push(result.insertId);
+        created.push(restockId);
       }
     }
 
@@ -219,11 +236,13 @@ router.post(
       prediction?.recommendedQuantity ?? Math.max(p.ReorderLevel * 2 - p.stockOnHand, p.ReorderLevel);
     const confidence = prediction?.confidence ?? null;
 
-    const [result] = await pool.query(
+    const restockId = await nextId(pool, "RestockRecommendation", "RestockID", "R");
+    await pool.query(
       `INSERT INTO RestockRecommendation
-        (ProductID, SupplierID, StockOnHand, PredictedDemand, RecommendedQuantity, Confidence, ForecastDate, Status)
-       VALUES (:productId, :supplierId, :stock, :predicted, :recommended, :confidence, CURDATE(), 'Pending')`,
+        (RestockID, ProductID, SupplierID, StockOnHand, PredictedDemand, RecommendedQuantity, Confidence, ForecastDate, Status)
+       VALUES (:restockId, :productId, :supplierId, :stock, :predicted, :recommended, :confidence, CURDATE(), 'Pending')`,
       {
+        restockId,
         productId: p.ProductID,
         supplierId: p.SupplierID,
         stock: p.stockOnHand,
@@ -233,7 +252,7 @@ router.post(
       }
     );
 
-    res.status(201).json({ restockId: result.insertId, message: "Added to the restocking queue." });
+    res.status(201).json({ restockId, message: "Added to the restocking queue." });
   })
 );
 

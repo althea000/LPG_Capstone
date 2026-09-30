@@ -451,8 +451,8 @@ export default function Inventory() {
             <table className="inventory-table">
               <thead>
                 <tr>
-                  <th>Inventory ID</th>
                   <th>Product ID</th>
+                  <th>Product Name</th>
                   <th>Warehouse</th>
                   <th>Current Stock</th>
                   <th>Reorder Limit</th>
@@ -470,8 +470,8 @@ export default function Inventory() {
                 {!isLoading &&
                   filteredInventory.map((item) => (
                     <tr key={item.inventoryId}>
-                      <td>{item.inventoryId}</td>
                       <td>{item.productId}</td>
+                      <td>{item.productName}</td>
                       <td>{item.warehouse}</td>
                       <td>{item.currentStock}</td>
                       <td>{item.reorderLimit}</td>

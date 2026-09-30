@@ -51,7 +51,7 @@ export default function CustomizeSingleItemModal({ isOpen, onClose, selectedItem
           <div className="single-item-row">
             <div className="single-item-field">
               <label>Restock ID</label>
-              <input type="text" value={`R-${String(selectedItem.restockId).padStart(3, "0")}`} disabled />
+              <input type="text" value={selectedItem.restockId} disabled />
             </div>
             <div className="single-item-field">
               <label>Product</label>

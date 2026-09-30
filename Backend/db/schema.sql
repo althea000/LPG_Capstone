@@ -1,288 +1,322 @@
--- GasTrack Database Schema (from updated_database.pdf)
+
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS UserActivity, DataActivityLog, Delivery, Payment, Sales,
+  OrderDetails, `Order`, Customer, TransferDetail, Transfer, InventoryTransaction,
+  Inventory, PurchaseOrderItem, PurchaseOrder, RestockRecommendation, CompanySettings,
+  User, Warehouse, Branch, Product, Supplier, Brand, Category, Role, Company;
+
 CREATE TABLE Company (
-  CompanyID INT AUTO_INCREMENT PRIMARY KEY,
-  CompanyName VARCHAR(150) NOT NULL UNIQUE,
-  DTIRegNo VARCHAR(50) NOT NULL UNIQUE,
-  DOENo VARCHAR(50) NULL,
-  PrimaryBranch VARCHAR(100) NULL,
-  Address VARCHAR(255) NOT NULL
+  CompanyID      VARCHAR(20) PRIMARY KEY,               -- C-001
+  CompanyName    VARCHAR(150) NOT NULL UNIQUE,
+  DTIRegNo       VARCHAR(50)  NOT NULL UNIQUE,
+  DOENo          VARCHAR(50)  NULL,
+  PrimaryBranch  VARCHAR(100) NULL,
+  Address        VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE Role (
-  RoleID INT AUTO_INCREMENT PRIMARY KEY,
-  RoleName VARCHAR(50) NOT NULL UNIQUE
-);
-
-CREATE TABLE User (
-  UserID INT AUTO_INCREMENT PRIMARY KEY,
-  CompanyID INT NOT NULL,
-  RoleID INT NOT NULL,
-  FirstName VARCHAR(50) NOT NULL,
-  LastName VARCHAR(50) NOT NULL,
-  Email VARCHAR(150) NOT NULL UNIQUE,
-  PasswordHash VARCHAR(255) NOT NULL,
-  Status VARCHAR(20) NOT NULL DEFAULT 'Active',
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (CompanyID) REFERENCES Company(CompanyID),
-  FOREIGN KEY (RoleID) REFERENCES Role(RoleID)
+  RoleID    VARCHAR(20) PRIMARY KEY,                    -- RL-001
+  RoleName  VARCHAR(50) NOT NULL UNIQUE
 );
 
 CREATE TABLE Category (
-  CategoryID INT AUTO_INCREMENT PRIMARY KEY,
-  Category VARCHAR(100) NOT NULL UNIQUE
+  CategoryID  VARCHAR(20) PRIMARY KEY,                  -- CTGRY-001
+  Category    VARCHAR(100) NOT NULL UNIQUE
 );
 
 CREATE TABLE Brand (
-  BrandID INT AUTO_INCREMENT PRIMARY KEY,
-  Brand VARCHAR(100) NOT NULL UNIQUE
+  BrandID  VARCHAR(20) PRIMARY KEY,                     -- BD-001
+  Brand    VARCHAR(100) NOT NULL UNIQUE
 );
 
 CREATE TABLE Supplier (
-  SupplierID INT AUTO_INCREMENT PRIMARY KEY,
-  SupplierName VARCHAR(150) NOT NULL,
-  ContactPerson VARCHAR(100) NULL,
-  Email VARCHAR(150) NULL,
-  Address VARCHAR(255) NULL,
-  Contact VARCHAR(30) NULL,
-  LeadTimeDays INT NOT NULL DEFAULT 0,
-  Status VARCHAR(20) NOT NULL DEFAULT 'Active',
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  SupplierID     VARCHAR(20) PRIMARY KEY,               -- SP-001
+  SupplierName   VARCHAR(150) NOT NULL,
+  ContactPerson  VARCHAR(100) NULL,
+  Email          VARCHAR(150) NULL,
+  Address        VARCHAR(255) NULL,
+  Contact        VARCHAR(30)  NULL,
+  LeadTimeDays   INT NOT NULL DEFAULT 0,
+  Status         VARCHAR(20) NOT NULL DEFAULT 'Active',
+  CreatedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE Product (
-  ProductID INT AUTO_INCREMENT PRIMARY KEY,
-  ProductName VARCHAR(150) NOT NULL,
-  CategoryID INT NOT NULL,
-  BrandID INT NOT NULL,
-  SupplierID INT NOT NULL,
-  Unit VARCHAR(30) NOT NULL,
-  UnitPrice DECIMAL(12,2) NOT NULL CHECK (UnitPrice >= 0),
-  CostPrice DECIMAL(12,2) NOT NULL CHECK (CostPrice >= 0),
-  ReorderLevel INT NOT NULL CHECK (ReorderLevel >= 0),
-  ImageURL VARCHAR(500) NULL,
-  ARModelURL VARCHAR(500) NULL,
-  Status VARCHAR(20) NOT NULL DEFAULT 'Active',
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ProductID     VARCHAR(20) PRIMARY KEY,                -- P-001
+  ProductName   VARCHAR(150) NOT NULL,
+  CategoryID    VARCHAR(20) NOT NULL,
+  BrandID       VARCHAR(20) NOT NULL,
+  SupplierID    VARCHAR(20) NOT NULL,
+  Unit          VARCHAR(30) NOT NULL,
+  UnitPrice     DECIMAL(12,2) NOT NULL CHECK (UnitPrice >= 0),
+  CostPrice     DECIMAL(12,2) NOT NULL CHECK (CostPrice >= 0),
+  ReorderLevel  INT NOT NULL CHECK (ReorderLevel >= 0),
+  ImageURL      VARCHAR(500) NULL,
+  ARModelURL    VARCHAR(500) NULL,
+  Status        VARCHAR(20) NOT NULL DEFAULT 'Active',
+  CreatedAt     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (CategoryID) REFERENCES Category(CategoryID),
-  FOREIGN KEY (BrandID) REFERENCES Brand(BrandID),
+  FOREIGN KEY (BrandID)    REFERENCES Brand(BrandID),
   FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID)
 );
 
 CREATE TABLE Branch (
-  BranchID INT AUTO_INCREMENT PRIMARY KEY,
-  CompanyID INT NOT NULL,
+  BranchID   VARCHAR(20) PRIMARY KEY,                   -- BRH-001
+  CompanyID  VARCHAR(20) NOT NULL,
   BranchName VARCHAR(100) NOT NULL,
-  Address VARCHAR(255) NOT NULL,
-  ContactNo VARCHAR(30) NULL,
-  Status VARCHAR(20) NOT NULL DEFAULT 'Active',
+  Address    VARCHAR(255) NOT NULL,
+  ContactNo  VARCHAR(30) NULL,
+  Status     VARCHAR(20) NOT NULL DEFAULT 'Active',
   FOREIGN KEY (CompanyID) REFERENCES Company(CompanyID)
 );
 
 CREATE TABLE Warehouse (
-  WarehouseID INT AUTO_INCREMENT PRIMARY KEY,
-  CompanyID INT NOT NULL,
-  WarehouseName VARCHAR(100) NOT NULL,
-  Location VARCHAR(255) NOT NULL,
-  Status VARCHAR(20) NOT NULL DEFAULT 'Active',
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  WarehouseID    VARCHAR(20) PRIMARY KEY,               -- WH-001
+  CompanyID      VARCHAR(20) NOT NULL,
+  WarehouseName  VARCHAR(100) NOT NULL,
+  Location       VARCHAR(255) NOT NULL,
+  Status         VARCHAR(20) NOT NULL DEFAULT 'Active',
+  CreatedAt      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (CompanyID) REFERENCES Company(CompanyID)
 );
 
+CREATE TABLE User (
+  UserID        VARCHAR(20) PRIMARY KEY,                -- U-001
+  CompanyID     VARCHAR(20) NOT NULL,
+  RoleID        VARCHAR(20) NOT NULL,
+  WarehouseID   VARCHAR(20) NULL,
+  FirstName     VARCHAR(50) NOT NULL,
+  LastName      VARCHAR(50) NOT NULL,
+  Email         VARCHAR(150) NOT NULL UNIQUE,
+  PasswordHash  VARCHAR(255) NOT NULL,
+  Status        VARCHAR(20) NOT NULL DEFAULT 'Active',
+  ModuleAccess  JSON NULL,
+  CreatedAt     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (CompanyID)   REFERENCES Company(CompanyID),
+  FOREIGN KEY (RoleID)      REFERENCES Role(RoleID),
+  FOREIGN KEY (WarehouseID) REFERENCES Warehouse(WarehouseID)
+);
+
 CREATE TABLE Inventory (
-  InventoryID INT AUTO_INCREMENT PRIMARY KEY,
-  WarehouseID INT NOT NULL,
-  ProductID INT NOT NULL,
-  StockOnHand INT NOT NULL DEFAULT 0 CHECK (StockOnHand >= 0),
-  LastUpdated DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  InventoryID   VARCHAR(20) PRIMARY KEY,                -- INT-001
+  WarehouseID   VARCHAR(20) NOT NULL,
+  ProductID     VARCHAR(20) NOT NULL,
+  StockOnHand   INT NOT NULL DEFAULT 0 CHECK (StockOnHand >= 0),
+  LastUpdated   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_warehouse_product (WarehouseID, ProductID),
   FOREIGN KEY (WarehouseID) REFERENCES Warehouse(WarehouseID),
-  FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID)   REFERENCES Product(ProductID)
 );
 
 CREATE TABLE InventoryTransaction (
-  TransactionID INT AUTO_INCREMENT PRIMARY KEY,
-  InventoryID INT NOT NULL,
-  UserID INT NOT NULL,
-  TransactionType VARCHAR(20) NOT NULL, -- 'Stock In' | 'Stock Out'
-  Quantity INT NOT NULL CHECK (Quantity > 0),
-  Reason VARCHAR(30) NOT NULL, -- Purchase, Sale, Damaged, Lost, Adjustment
-  ReferenceNo VARCHAR(50) NULL,
-  TransactionDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  Remarks VARCHAR(255) NULL,
+  TransactionID    VARCHAR(20) PRIMARY KEY,             -- T-001
+  InventoryID      VARCHAR(20) NOT NULL,
+  UserID           VARCHAR(20) NOT NULL,
+  TransactionType  VARCHAR(20) NOT NULL,                -- 'Stock In' | 'Stock Out'
+  Quantity         INT NOT NULL CHECK (Quantity > 0),
+  Reason           VARCHAR(30) NOT NULL,                -- Purchase, Sale, Transfer, Damaged, Lost, Adjustment
+  ReferenceNo      VARCHAR(50) NULL,                    -- PONo / SaleNo / TransferID / count ref
+  TransactionDate  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  Remarks          VARCHAR(255) NULL,
   FOREIGN KEY (InventoryID) REFERENCES Inventory(InventoryID),
-  FOREIGN KEY (UserID) REFERENCES User(UserID)
+  FOREIGN KEY (UserID)      REFERENCES User(UserID)
 );
 
 CREATE TABLE Transfer (
-  TransferID INT AUTO_INCREMENT PRIMARY KEY,
-  FromWarehouseID INT NOT NULL,
-  ToWarehouseID INT NOT NULL,
-  UserID INT NOT NULL,
-  TransferDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  Status VARCHAR(20) NOT NULL,
-  Remarks VARCHAR(255) NULL,
+  TransferID       VARCHAR(20) PRIMARY KEY,             -- TF-001
+  FromWarehouseID  VARCHAR(20) NOT NULL,
+  ToWarehouseID    VARCHAR(20) NOT NULL,
+  UserID           VARCHAR(20) NOT NULL,
+  TransferDate     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  Status           VARCHAR(20) NOT NULL,
+  Remarks          VARCHAR(255) NULL,
   FOREIGN KEY (FromWarehouseID) REFERENCES Warehouse(WarehouseID),
-  FOREIGN KEY (ToWarehouseID) REFERENCES Warehouse(WarehouseID),
-  FOREIGN KEY (UserID) REFERENCES User(UserID)
+  FOREIGN KEY (ToWarehouseID)   REFERENCES Warehouse(WarehouseID),
+  FOREIGN KEY (UserID)          REFERENCES User(UserID)
 );
 
 CREATE TABLE TransferDetail (
-  TransferDetailID INT AUTO_INCREMENT PRIMARY KEY,
-  TransferID INT NOT NULL,
-  ProductID INT NOT NULL,
-  Quantity INT NOT NULL CHECK (Quantity > 0),
+  TransferDetailID  VARCHAR(20) PRIMARY KEY,            -- TD-001
+  TransferID        VARCHAR(20) NOT NULL,
+  ProductID         VARCHAR(20) NOT NULL,
+  Quantity          INT NOT NULL CHECK (Quantity > 0),
   FOREIGN KEY (TransferID) REFERENCES Transfer(TransferID),
-  FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID)  REFERENCES Product(ProductID)
 );
 
 CREATE TABLE Customer (
-  CustomerID INT AUTO_INCREMENT PRIMARY KEY,
-  UserID INT NULL,
-  CustomerType VARCHAR(20) NOT NULL, -- Commercial | Residential
-  ContactNo VARCHAR(30) NOT NULL,
-  Address VARCHAR(255) NOT NULL,
-  Status VARCHAR(20) NOT NULL DEFAULT 'Active',
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CustomerID    VARCHAR(20) PRIMARY KEY,                -- CUST-001
+  UserID        VARCHAR(20) NULL,
+  CustomerType  VARCHAR(20) NOT NULL,                   -- Commercial | Residential
+  CustomerName  VARCHAR(150) NOT NULL DEFAULT '',
+  ContactNo     VARCHAR(30) NOT NULL,
+  Address       VARCHAR(255) NOT NULL,
+  Status        VARCHAR(20) NOT NULL DEFAULT 'Active',
+  CreatedAt     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UpdatedAt     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (UserID) REFERENCES User(UserID)
 );
 
 CREATE TABLE `Order` (
-  OrderID INT AUTO_INCREMENT PRIMARY KEY,
-  CustomerID INT NOT NULL,
-  OrderNo VARCHAR(50) NOT NULL UNIQUE,
-  OrderDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  OrderType VARCHAR(20) NOT NULL, -- Walk-in, Pickup, Delivery
-  OrderStatus VARCHAR(30) NOT NULL,
-  TotalAmount DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0),
-  Remarks VARCHAR(255) NULL,
+  OrderID      VARCHAR(20) PRIMARY KEY,                 -- ORD-001
+  CustomerID   VARCHAR(20) NOT NULL,
+  OrderNo      VARCHAR(50) NOT NULL UNIQUE,
+  OrderDate    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  OrderType    VARCHAR(20) NOT NULL,                    -- Walk-in, Pickup, Delivery
+  OrderStatus  VARCHAR(30) NOT NULL,
+  TotalAmount  DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0),   -- items + delivery charge
+  Remarks      VARCHAR(255) NULL,
   FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID)
 );
 
 CREATE TABLE OrderDetails (
-  OrderDetailID INT AUTO_INCREMENT PRIMARY KEY,
-  OrderID INT NOT NULL,
-  ProductID INT NOT NULL,
-  Quantity INT NOT NULL CHECK (Quantity > 0),
-  UnitPrice DECIMAL(12,2) NOT NULL CHECK (UnitPrice >= 0),
-  Subtotal DECIMAL(12,2) NOT NULL CHECK (Subtotal >= 0),
-  FOREIGN KEY (OrderID) REFERENCES `Order`(OrderID),
+  OrderDetailID  VARCHAR(20) PRIMARY KEY,               -- OD-001
+  OrderID        VARCHAR(20) NOT NULL,
+  ProductID      VARCHAR(20) NOT NULL,
+  Quantity       INT NOT NULL CHECK (Quantity > 0),
+  UnitPrice      DECIMAL(12,2) NOT NULL CHECK (UnitPrice >= 0),
+  Subtotal       DECIMAL(12,2) NOT NULL CHECK (Subtotal >= 0),
+  FOREIGN KEY (OrderID)   REFERENCES `Order`(OrderID),
   FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
 );
 
 CREATE TABLE Sales (
-  SaleID INT AUTO_INCREMENT PRIMARY KEY,
-  OrderID INT NULL,
-  CustomerID INT NOT NULL,
-  UserID INT NOT NULL,
-  SaleNo VARCHAR(50) NOT NULL UNIQUE,
-  SaleDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  SalesDiscount DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (SalesDiscount >= 0),
-  TotalAmount DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0),
-  Remarks VARCHAR(255) NULL,
-  FOREIGN KEY (OrderID) REFERENCES `Order`(OrderID),
+  SaleID         VARCHAR(20) PRIMARY KEY,               -- S-001
+  OrderID        VARCHAR(20) NULL,
+  CustomerID     VARCHAR(20) NOT NULL,
+  UserID         VARCHAR(20) NOT NULL,
+  SaleNo         VARCHAR(50) NOT NULL UNIQUE,
+  SaleDate       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  SalesDiscount  DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (SalesDiscount >= 0),
+  TotalAmount    DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0), -- Order total - discount (amount payable)
+  Remarks        VARCHAR(255) NULL,
+  FOREIGN KEY (OrderID)    REFERENCES `Order`(OrderID),
   FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
-  FOREIGN KEY (UserID) REFERENCES User(UserID)
-);
-
-CREATE TABLE Payment (
-  PaymentID INT AUTO_INCREMENT PRIMARY KEY,
-  PaymentType VARCHAR(20) NOT NULL, -- Sale | Purchase
-  SaleID INT NULL,
-  PurchaseOrderID INT NULL,
-  PaymentMethod VARCHAR(30) NOT NULL,
-  AmountPaid DECIMAL(12,2) NOT NULL CHECK (AmountPaid > 0),
-  PaymentDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  ReferenceNo VARCHAR(50) NULL,
-  Remarks VARCHAR(255) NULL,
-  FOREIGN KEY (SaleID) REFERENCES Sales(SaleID)
-);
-
-CREATE TABLE Delivery (
-  DeliveryID INT AUTO_INCREMENT PRIMARY KEY,
-  SaleID INT NOT NULL UNIQUE,
-  DRNo VARCHAR(50) NOT NULL UNIQUE,
-  DeliveryDate DATETIME NULL,
-  DeliveredByUserID INT NULL,
-  DeliveryCharge DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (DeliveryCharge >= 0),
-  DeliveryAddress VARCHAR(255) NOT NULL,
-  DeliveryStatus VARCHAR(30) NOT NULL,
-  Remarks VARCHAR(255) NULL,
-  FOREIGN KEY (SaleID) REFERENCES Sales(SaleID),
-  FOREIGN KEY (DeliveredByUserID) REFERENCES User(UserID)
+  FOREIGN KEY (UserID)     REFERENCES User(UserID)
 );
 
 CREATE TABLE RestockRecommendation (
-  RestockID INT AUTO_INCREMENT PRIMARY KEY,
-  ProductID INT NOT NULL,
-  SupplierID INT NOT NULL,
-  StockOnHand INT NOT NULL DEFAULT 0 CHECK (StockOnHand >= 0),
-  PredictedDemand INT NOT NULL CHECK (PredictedDemand >= 0),
-  RecommendedQuantity INT NOT NULL CHECK (RecommendedQuantity >= 0),
-  ForecastDate DATE NOT NULL,
-  Status VARCHAR(20) NOT NULL,
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (ProductID) REFERENCES Product(ProductID),
+  RestockID            VARCHAR(20) PRIMARY KEY,         -- R-001
+  ProductID            VARCHAR(20) NOT NULL,
+  SupplierID           VARCHAR(20) NOT NULL,
+  StockOnHand          INT NOT NULL DEFAULT 0 CHECK (StockOnHand >= 0),
+  PredictedDemand      INT NOT NULL CHECK (PredictedDemand >= 0),
+  RecommendedQuantity  INT NOT NULL CHECK (RecommendedQuantity >= 0),
+  Confidence           DECIMAL(5,2) NULL,
+  ForecastDate         DATE NOT NULL,
+  Status               VARCHAR(20) NOT NULL,
+  CreatedAt            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (ProductID)  REFERENCES Product(ProductID),
   FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID)
 );
 
 CREATE TABLE PurchaseOrder (
-  PurchaseOrderID INT AUTO_INCREMENT PRIMARY KEY,
-  SupplierID INT NOT NULL,
-  RestockID INT NULL,
-  CreatedByUserID INT NOT NULL,
-  PONo VARCHAR(50) NOT NULL UNIQUE,
-  OrderDate DATETIME NOT NULL,
-  ExpectedDeliveryDate DATE NULL,
-  Status VARCHAR(30) NOT NULL,
-  TotalAmount DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0),
-  Remarks VARCHAR(255) NULL,
-  CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID),
-  FOREIGN KEY (RestockID) REFERENCES RestockRecommendation(RestockID),
+  PurchaseOrderID       VARCHAR(20) PRIMARY KEY,        -- PO-001
+  SupplierID            VARCHAR(20) NOT NULL,
+  RestockID             VARCHAR(20) NULL,
+  CreatedByUserID       VARCHAR(20) NOT NULL,
+  PONo                  VARCHAR(50) NOT NULL UNIQUE,
+  OrderDate             DATETIME NOT NULL,
+  ExpectedDeliveryDate  DATE NULL,
+  Status                VARCHAR(30) NOT NULL,
+  TotalAmount           DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0),
+  Remarks               VARCHAR(255) NULL,
+  CreatedAt             DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (SupplierID)      REFERENCES Supplier(SupplierID),
+  FOREIGN KEY (RestockID)       REFERENCES RestockRecommendation(RestockID),
   FOREIGN KEY (CreatedByUserID) REFERENCES User(UserID)
 );
 
 CREATE TABLE PurchaseOrderItem (
-  PurchaseOrderItemID INT AUTO_INCREMENT PRIMARY KEY,
-  PurchaseOrderID INT NOT NULL,
-  ProductID INT NOT NULL,
-  Quantity INT NOT NULL CHECK (Quantity > 0),
-  UnitCost DECIMAL(12,2) NOT NULL CHECK (UnitCost >= 0),
-  Subtotal DECIMAL(12,2) NOT NULL CHECK (Subtotal >= 0),
+  PurchaseOrderItemID  VARCHAR(20) PRIMARY KEY,         -- POI-001
+  PurchaseOrderID      VARCHAR(20) NOT NULL,
+  ProductID            VARCHAR(20) NOT NULL,
+  Quantity             INT NOT NULL CHECK (Quantity > 0),
+  UnitCost             DECIMAL(12,2) NOT NULL CHECK (UnitCost >= 0),
+  Subtotal             DECIMAL(12,2) NOT NULL CHECK (Subtotal >= 0),
   FOREIGN KEY (PurchaseOrderID) REFERENCES PurchaseOrder(PurchaseOrderID),
-  FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID)       REFERENCES Product(ProductID)
+);
+
+CREATE TABLE Payment (
+  PaymentID        VARCHAR(20) PRIMARY KEY,             -- PAY-001
+  PaymentType      VARCHAR(20) NOT NULL,                -- Sale | Purchase
+  SaleID           VARCHAR(20) NULL,
+  PurchaseOrderID  VARCHAR(20) NULL,
+  PaymentMethod    VARCHAR(30) NOT NULL,                -- Cash, Gcash, Card, QRph
+  AmountPaid       DECIMAL(12,2) NOT NULL CHECK (AmountPaid > 0),
+  PaymentDate      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  ReferenceNo      VARCHAR(50) NULL,
+  Remarks          VARCHAR(255) NULL,
+  FOREIGN KEY (SaleID)          REFERENCES Sales(SaleID),
+  FOREIGN KEY (PurchaseOrderID) REFERENCES PurchaseOrder(PurchaseOrderID)
+);
+
+CREATE TABLE Delivery (
+  DeliveryID         VARCHAR(20) PRIMARY KEY,           -- D-001
+  SaleID             VARCHAR(20) NOT NULL UNIQUE,
+  DRNo               VARCHAR(50) NOT NULL UNIQUE,
+  DeliveryDate       DATETIME NULL,
+  DeliveredByUserID  VARCHAR(20) NULL,
+  DeliveryCharge     DECIMAL(12,2) NOT NULL DEFAULT 0 CHECK (DeliveryCharge >= 0),
+  DeliveryAddress    VARCHAR(255) NOT NULL,
+  DeliveryStatus     VARCHAR(30) NOT NULL,
+  Remarks            VARCHAR(255) NULL,
+  FOREIGN KEY (SaleID)            REFERENCES Sales(SaleID),
+  FOREIGN KEY (DeliveredByUserID) REFERENCES User(UserID)
 );
 
 CREATE TABLE DataActivityLog (
-  DataActivityID INT AUTO_INCREMENT PRIMARY KEY,
-  UserID INT NOT NULL,
-  ActivityType VARCHAR(30) NOT NULL, -- Import, Export, Generate Report
-  DataType VARCHAR(50) NOT NULL,
-  FileName VARCHAR(255) NOT NULL,
-  FileFormat VARCHAR(20) NOT NULL,
-  DateFrom DATE NULL,
-  DateTo DATE NULL,
-  Status VARCHAR(20) NOT NULL,
-  ActivityDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  DataActivityID  VARCHAR(20) PRIMARY KEY,              -- DA-001
+  UserID          VARCHAR(20) NOT NULL,
+  ActivityType    VARCHAR(30) NOT NULL,                 -- Import, Export, Generate Report
+  DataType        VARCHAR(50) NOT NULL,
+  FileName        VARCHAR(255) NOT NULL,
+  FileFormat      VARCHAR(20) NOT NULL,
+  DateFrom        DATE NULL,
+  DateTo          DATE NULL,
+  Status          VARCHAR(20) NOT NULL,
+  ActivityDate    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (UserID) REFERENCES User(UserID)
 );
 
 CREATE TABLE UserActivity (
-  UserActivityID INT AUTO_INCREMENT PRIMARY KEY,
-  UserID INT NOT NULL,
-  ActivityType VARCHAR(30) NOT NULL, -- Login, Create, Update, Delete, Approve
-  Module VARCHAR(50) NOT NULL,
-  RecordID INT NULL,
-  Description VARCHAR(500) NULL,
-  ActivityDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UserActivityID  VARCHAR(20) PRIMARY KEY,              -- UA-001
+  UserID          VARCHAR(20) NOT NULL,
+  ActivityType    VARCHAR(30) NOT NULL,                 -- Login, Create, Update, Delete, Approve
+  Module          VARCHAR(50) NOT NULL,
+  RecordID        VARCHAR(20) NULL,
+  Description     VARCHAR(500) NULL,
+  ActivityDate    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (UserID) REFERENCES User(UserID)
 );
 
-SET FOREIGN_KEY_CHECKS = 1;
+CREATE TABLE CompanySettings (
+  CompanyID          VARCHAR(20) PRIMARY KEY,
+  FullName           VARCHAR(150) NULL,
+  Address            VARCHAR(255) NULL,
+  ContactEmail       VARCHAR(150) NULL,
+  Phone              VARCHAR(30) NULL,
+  LogoDataUrl        LONGTEXT NULL,
+  TaxRate            DECIMAL(5,2) NOT NULL DEFAULT 12.00,
+  TaxEnabled         TINYINT(1) NOT NULL DEFAULT 1,
+  Currency           VARCHAR(10) NOT NULL DEFAULT 'PHP',
+  RoundUp            TINYINT(1) NOT NULL DEFAULT 0,
+  RoundDown          TINYINT(1) NOT NULL DEFAULT 0,
+  TwoDecimalStandard TINYINT(1) NOT NULL DEFAULT 1,
+  ReceiptHeader      VARCHAR(150) NULL,
+  ShowLogoOnReceipt  TINYINT(1) NOT NULL DEFAULT 1,
+  ShowTaxBreakdown   TINYINT(1) NOT NULL DEFAULT 1,
+  FooterMessage      VARCHAR(255) NULL,
+  PrintSize          VARCHAR(10) NOT NULL DEFAULT '80mm',
+  AutoLogoutMinutes  INT NOT NULL DEFAULT 30,
+  SystemTimezone     VARCHAR(50) NOT NULL DEFAULT 'Asia/Manila',
+  DateFormat         VARCHAR(20) NOT NULL DEFAULT 'MM/DD/YYYY',
+  Language           VARCHAR(10) NOT NULL DEFAULT 'en',
+  Theme              VARCHAR(10) NOT NULL DEFAULT 'light',
+  UpdatedAt          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (CompanyID) REFERENCES Company(CompanyID)
+);
 
--- Seed reference data
-INSERT INTO Role (RoleName) VALUES ('Admin'), ('Manager'), ('Inventory Staff'), ('Driver'), ('Helper');
-INSERT INTO Category (Category) VALUES ('Gasul LPG'), ('Cylinder'), ('Accessories');
-INSERT INTO Brand (Brand) VALUES ('Gasul'), ('Solane'), ('Petron');
+SET FOREIGN_KEY_CHECKS = 1;

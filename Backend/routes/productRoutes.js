@@ -4,13 +4,36 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern ORDER BY ${column} DESC LIMIT 500`,
+    { pattern: `${prefix}-%` }
+  );
+  let max = 0;
+  for (const row of rows) {
+    const match = String(row.id || "").match(new RegExp(`^${prefix}-(\\d+)$`));
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+  return `${prefix}-${String(max + 1).padStart(pad, "0")}`;
+}
+
 router.use(authenticate);
 
 // GET /products?search=&category=&status=
 router.get(
   "/",
   asyncHandler(async (req, res) => {
-    const { search, category, status } = req.query;
+    const { search, category, status, warehouseId } = req.query;
+    const params = {};
+
+    let inventoryJoin = `LEFT JOIN Inventory i ON i.ProductID = p.ProductID`;
+    if (warehouseId) {
+      inventoryJoin += ` AND i.WarehouseID = :warehouseId`;
+      params.warehouseId = warehouseId;
+    }
+
     let sql = `
       SELECT p.ProductID AS productId, p.ProductName AS name, c.Category AS category,
              s.SupplierName AS supplier, p.Unit AS unit, p.UnitPrice AS unitPrice,
@@ -20,13 +43,13 @@ router.get(
       FROM Product p
       JOIN Category c ON c.CategoryID = p.CategoryID
       JOIN Supplier s ON s.SupplierID = p.SupplierID
-      LEFT JOIN Inventory i ON i.ProductID = p.ProductID
+      ${inventoryJoin}
       WHERE 1=1`;
-    const params = {};
+
     if (search) {
       sql += ` AND (p.ProductName LIKE :search OR p.ProductID = :searchId)`;
       params.search = `%${search}%`;
-      params.searchId = Number(search) || 0;
+      params.searchId = String(search);
     }
     if (category) {
       sql += ` AND c.Category = :category`;
@@ -87,10 +110,11 @@ router.post(
       }
     );
 
+    const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userId, 'Create', 'Products', :recordId, 'Created a new product')`,
-      { userId: req.user.userId, recordId: result.insertId }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+       VALUES (:userActivityId, :userId, 'Create', 'Products', :recordId, 'Created a new product')`,
+      { userActivityId, userId: req.user.userId, recordId: result.insertId }
     );
 
     res.status(201).json({ productId: result.insertId });
@@ -127,10 +151,11 @@ router.put(
     );
     if (!result.affectedRows) throw new ApiError(404, "Product not found.");
 
+    const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userId, 'Update', 'Products', :recordId, 'Updated a product')`,
-      { userId: req.user.userId, recordId: req.params.id }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+       VALUES (:userActivityId, :userId, 'Update', 'Products', :recordId, 'Updated a product')`,
+      { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 
     res.json({ message: "Product updated." });
@@ -149,10 +174,11 @@ router.delete(
     );
     if (!result.affectedRows) throw new ApiError(404, "Product not found.");
 
+    const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userId, 'Delete', 'Products', :recordId, 'Deactivated a product')`,
-      { userId: req.user.userId, recordId: req.params.id }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+       VALUES (:userActivityId, :userId, 'Delete', 'Products', :recordId, 'Deactivated a product')`,
+      { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 
     res.json({ message: "Product deactivated." });

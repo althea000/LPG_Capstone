@@ -5,6 +5,21 @@ const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 const { nextSequence } = require("../utils/generateNumbers");
 
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern ORDER BY ${column} DESC LIMIT 500`,
+    { pattern: `${prefix}-%` }
+  );
+  let max = 0;
+  for (const row of rows) {
+    const match = String(row.id || "").match(new RegExp(`^${prefix}-(\\d+)$`));
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+  return `${prefix}-${String(max + 1).padStart(pad, "0")}`;
+}
+
 router.use(authenticate);
 
 router.get(
@@ -65,11 +80,13 @@ router.post(
       await conn.beginTransaction();
       const firstRestockId = Array.isArray(restockIds) && restockIds.length ? restockIds[0] : null;
 
-      const [result] = await conn.query(
+      const purchaseOrderId = await nextId(conn, "PurchaseOrder", "PurchaseOrderID", "PO");
+      await conn.query(
         `INSERT INTO PurchaseOrder
-          (SupplierID, RestockID, CreatedByUserID, PONo, OrderDate, ExpectedDeliveryDate, Status, TotalAmount, Remarks)
-         VALUES (:supplierId, :restockId, :userId, :poNo, NOW(), :expected, 'Pending', :totalAmount, :remarks)`,
+          (PurchaseOrderID, SupplierID, RestockID, CreatedByUserID, PONo, OrderDate, ExpectedDeliveryDate, Status, TotalAmount, Remarks)
+         VALUES (:purchaseOrderId, :supplierId, :restockId, :userId, :poNo, NOW(), :expected, 'Pending', :totalAmount, :remarks)`,
         {
+          purchaseOrderId,
           supplierId,
           restockId: firstRestockId,
           userId: req.user.userId,
@@ -81,11 +98,13 @@ router.post(
       );
 
       for (const item of items) {
+        const purchaseOrderItemId = await nextId(conn, "PurchaseOrderItem", "PurchaseOrderItemID", "POI");
         await conn.query(
-          `INSERT INTO PurchaseOrderItem (PurchaseOrderID, ProductID, Quantity, UnitCost, Subtotal)
-           VALUES (:poId, :productId, :qty, :unitCost, :subtotal)`,
+          `INSERT INTO PurchaseOrderItem (PurchaseOrderItemID, PurchaseOrderID, ProductID, Quantity, UnitCost, Subtotal)
+           VALUES (:purchaseOrderItemId, :poId, :productId, :qty, :unitCost, :subtotal)`,
           {
-            poId: result.insertId,
+            purchaseOrderItemId,
+            poId: purchaseOrderId,
             productId: item.productId,
             qty: item.qty,
             unitCost: item.unitCost,
@@ -104,7 +123,7 @@ router.post(
       }
 
       await conn.commit();
-      res.status(201).json({ id: result.insertId, poNo, totalAmount });
+      res.status(201).json({ id: purchaseOrderId, poNo, totalAmount });
     } catch (err) {
       await conn.rollback();
       throw err;
@@ -149,20 +168,21 @@ router.put(
         );
         let inventoryId = invRows[0]?.InventoryID;
         if (!inventoryId) {
-          const [ins] = await conn.query(
-            `INSERT INTO Inventory (WarehouseID, ProductID, StockOnHand) VALUES (:wid, :pid, 0)`,
-            { wid: warehouseId, pid: item.ProductID }
+          inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+          await conn.query(
+            `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand) VALUES (:inventoryId, :wid, :pid, 0)`,
+            { inventoryId, wid: warehouseId, pid: item.ProductID }
           );
-          inventoryId = ins.insertId;
         }
         await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :id`, {
           qty: item.Quantity,
           id: inventoryId,
         });
+        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         await conn.query(
-          `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
-           VALUES (:invId, :userId, 'Stock In', :qty, 'Purchase', :ref)`,
-          { invId: inventoryId, userId: req.user.userId, qty: item.Quantity, ref: `PO-${req.params.id}` }
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
+           VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, 'Purchase', :ref)`,
+          { transactionId, invId: inventoryId, userId: req.user.userId, qty: item.Quantity, ref: `PO-${req.params.id}` }
         );
       }
       await conn.query(`UPDATE PurchaseOrder SET Status = 'Received' WHERE PurchaseOrderID = :id`, { id: req.params.id });

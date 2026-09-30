@@ -5,6 +5,21 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate, authorize } = require("../middleware/auth");
 
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern ORDER BY ${column} DESC LIMIT 500`,
+    { pattern: `${prefix}-%` }
+  );
+  let max = 0;
+  for (const row of rows) {
+    const match = String(row.id || "").match(new RegExp(`^${prefix}-(\\d+)$`));
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+  return `${prefix}-${String(max + 1).padStart(pad, "0")}`;
+}
+
 router.use(authenticate);
 
 const LIST_SELECT = `
@@ -145,10 +160,11 @@ router.post(
       }
     );
 
+    const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userId, 'Create', 'Users', :recordId, 'Created a new user')`,
-      { userId: req.user.userId, recordId: result.insertId }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+       VALUES (:userActivityId, :userId, 'Create', 'Users', :recordId, 'Created a new user')`,
+      { userActivityId, userId: req.user.userId, recordId: result.insertId }
     );
 
     res.status(201).json({ id: result.insertId });
@@ -204,10 +220,11 @@ router.put(
     const [result] = await pool.query(`UPDATE User SET ${sets.join(", ")} WHERE UserID = :id`, params);
     if (!result.affectedRows) throw new ApiError(404, "User not found.");
 
+    const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userId, 'Update', 'Users', :recordId, 'Updated a user')`,
-      { userId: req.user.userId, recordId: req.params.id }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+       VALUES (:userActivityId, :userId, 'Update', 'Users', :recordId, 'Updated a user')`,
+      { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 
     res.json({ message: "User updated." });
@@ -227,10 +244,11 @@ router.delete(
     });
     if (!result.affectedRows) throw new ApiError(404, "User not found.");
 
+    const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userId, 'Delete', 'Users', :recordId, 'Deactivated a user')`,
-      { userId: req.user.userId, recordId: req.params.id }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+       VALUES (:userActivityId, :userId, 'Delete', 'Users', :recordId, 'Deactivated a user')`,
+      { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 
     res.json({ message: "User deactivated." });

@@ -95,7 +95,7 @@ export default function Data() {
             dataType: "Annual Report",
             format,
             year: Number(reportYear),
-            brandId: Number(reportBrandId),
+            brandId: reportBrandId,
           }),
         });
         downloadBase64File(result.fileName, result.mimeType, result.fileBase64);

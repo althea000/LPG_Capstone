@@ -4,6 +4,36 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 
+
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const normalizedPrefix = String(prefix || "").toUpperCase();
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern`,
+    { pattern: `${normalizedPrefix}%` }
+  );
+
+  let max = 0;
+  const matcher = new RegExp(`^${normalizedPrefix}-?([0-9]+)$`);
+  for (const row of rows) {
+    const candidate = String(row.id || "").toUpperCase();
+    const match = candidate.match(matcher);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+
+  let next = max + 1;
+  while (true) {
+    const candidateId = `${normalizedPrefix}-${String(next).padStart(pad, "0")}`;
+    const [existsRows] = await conn.query(
+      `SELECT ${column} AS id FROM ${table} WHERE ${column} = :id LIMIT 1`,
+      { id: candidateId }
+    );
+    if (!existsRows[0]) return candidateId;
+    next += 1;
+  }
+}
+
 router.use(authenticate);
 
 // Recompute Status based on today's date vs DueDate, for any report not yet Submitted.
@@ -133,10 +163,12 @@ router.post(
       id: req.params.id,
     });
 
+    const dataActivityId = await nextId(pool, "DataActivityLog", "DataActivityID", "DA");
     await pool.query(
-      `INSERT INTO DataActivityLog (UserID, ActivityType, DataType, FileName, FileFormat, DateFrom, DateTo, Status)
-       VALUES (:userId, 'Generate Report', :dataType, :fileName, 'CSV', :from, :to, 'Successful')`,
+      `INSERT INTO DataActivityLog (DataActivityID, UserID, ActivityType, DataType, FileName, FileFormat, DateFrom, DateTo, Status)
+       VALUES (:dataActivityId, :userId, 'Generate Report', :dataType, :fileName, 'CSV', :from, :to, 'Successful')`,
       {
+        dataActivityId,
         userId: req.user.userId,
         dataType: report.ReportType,
         fileName,

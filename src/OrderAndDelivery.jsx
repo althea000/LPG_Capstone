@@ -152,10 +152,10 @@ function NewOrderModal({ isOpen, onClose, onCreated, customers }) {
       await apiRequest("/orders", {
         method: "POST",
         body: JSON.stringify({
-          customerId: customerId ? Number(customerId) : undefined,
+          customerId: customerId || undefined,
           orderType,
           items: validItems.map((it) => ({
-            productId: Number(it.productId),
+            productId: String(it.productId),
             qty: Number(it.qty),
             unitPrice: productMap[it.productId].unitPrice,
           })),

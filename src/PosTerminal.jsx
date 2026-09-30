@@ -14,9 +14,10 @@ const discountOptions = [
 const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
+const POS_WAREHOUSE_ID = "WH-001";
 
 function formatPeso(amount) {
-  return `₱${amount.toFixed(2)}`;
+  return `\u20B1${amount.toFixed(2)}`;
 }
 
 function loadHeldCarts() {
@@ -179,7 +180,7 @@ export default function PosTerminal() {
   useEffect(() => {
     let cancelled = false;
     setIsLoadingProducts(true);
-    apiRequest("/products?status=Active")
+    apiRequest(`/products?status=Active&warehouseId=${POS_WAREHOUSE_ID}`)
       .then((data) => {
         if (cancelled) return;
         const mapped = data.map((p) => ({
@@ -345,7 +346,7 @@ export default function PosTerminal() {
       clearCart();
       alert(`Sale ${response.saleNo} completed. Change due: ₱${response.changeDue?.toFixed(2) ?? "0.00"}`);
 
-      apiRequest("/products?status=Active")
+      apiRequest(`/products?status=Active&warehouseId=${POS_WAREHOUSE_ID}`)
         .then((data) => {
           const mapped = data.map((p) => ({
             id: p.productId,

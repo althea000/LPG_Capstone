@@ -8,6 +8,12 @@ const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 const { sendMail } = require("../config/mailer");
 
+// Helper to generate unique string primary keys within VARCHAR(20)
+function generateId(prefix) {
+  const rand = Math.floor(1000 + Math.random() * 9000);
+  return `${prefix}-${Date.now().toString().slice(-8)}${rand}`.slice(0, 20);
+}
+
 // POST /auth/login
 router.post(
   "/login",
@@ -43,10 +49,11 @@ router.post(
       { expiresIn: process.env.JWT_EXPIRES_IN || "8h" }
     );
 
+    const userActivityId = generateId("UA");
     await pool.query(
-      `INSERT INTO UserActivity (UserID, ActivityType, Module, Description)
-       VALUES (:userId, 'Login', 'Auth', 'User logged in')`,
-      { userId: user.UserID }
+      `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, Description)
+       VALUES (:userActivityId, :userId, 'Login', 'Auth', 'User logged in')`,
+      { userActivityId, userId: user.UserID }
     );
 
     res.json({
@@ -63,7 +70,7 @@ router.post(
   })
 );
 
-// POST /auth/register — (unchanged from before)
+// POST /auth/register
 router.post(
   "/register",
   asyncHandler(async (req, res) => {
@@ -120,59 +127,77 @@ router.post(
 
       const fullAddress = `${completeAddress}, ${cityMunicipality}`;
 
-      const [companyResult] = await conn.query(
-        `INSERT INTO Company (CompanyName, DTIRegNo, DOENo, PrimaryBranch, Address)
-         VALUES (:name, :dti, :doe, :branch, :address)`,
-        { name: companyName, dti: dtiUpper, doe: doeLicenseNo ? doeLicenseNo.toUpperCase() : null, branch: branchName, address: fullAddress }
-      );
-      const companyId = companyResult.insertId;
+      // Generate custom primary keys
+      const companyId = generateId("C");
+      const warehouseId = generateId("WH");
+      const userId = generateId("U");
+      const userActivityId = generateId("UA");
 
-      const [warehouseResult] = await conn.query(
-        `INSERT INTO Warehouse (CompanyID, WarehouseName, Location) VALUES (:companyId, :name, :location)`,
-        { companyId, name: branchName, location: fullAddress }
+      // 1. Insert Company
+      await conn.query(
+        `INSERT INTO Company (CompanyID, CompanyName, DTIRegNo, DOENo, PrimaryBranch, Address)
+         VALUES (:companyId, :name, :dti, :doe, :branch, :address)`,
+        { companyId, name: companyName, dti: dtiUpper, doe: doeLicenseNo ? doeLicenseNo.toUpperCase() : null, branch: branchName, address: fullAddress }
       );
-      const warehouseId = warehouseResult.insertId;
 
-      const [[adminRole]] = await conn.query(`SELECT RoleID FROM Role WHERE RoleName = 'Admin'`);
+      // 2. Insert Default Warehouse
+      await conn.query(
+        `INSERT INTO Warehouse (WarehouseID, CompanyID, WarehouseName, Location)
+         VALUES (:warehouseId, :companyId, :name, :location)`,
+        { warehouseId, companyId, name: branchName, location: fullAddress }
+      );
+
+      // 3. Get Admin Role (handles both 'Administrator' and 'Admin')
+      const [[adminRole]] = await conn.query(
+        `SELECT RoleID, RoleName FROM Role WHERE RoleName IN ('Administrator', 'Admin') LIMIT 1`
+      );
       if (!adminRole) throw new ApiError(500, "Admin role is not configured on this server.");
 
+      // 4. Insert User
       const passwordHash = await bcrypt.hash(password, 10);
       const defaultModules = { dashboard: true, pos: true, inventory: true, products: true, suppliers: true, data: true };
 
-      const [userResult] = await conn.query(
-        `INSERT INTO User (CompanyID, RoleID, WarehouseID, FirstName, LastName, Email, PasswordHash, Status, ModuleAccess)
-         VALUES (:companyId, :roleId, :warehouseId, :firstName, :lastName, :email, :passwordHash, 'Active', :modules)`,
+      await conn.query(
+        `INSERT INTO \`User\` (UserID, CompanyID, RoleID, WarehouseID, FirstName, LastName, Email, PasswordHash, Status, ModuleAccess)
+         VALUES (:userId, :companyId, :roleId, :warehouseId, :firstName, :lastName, :email, :passwordHash, 'Active', :modules)`,
         {
-          companyId, roleId: adminRole.RoleID, warehouseId,
-          firstName, lastName, email, passwordHash,
+          userId,
+          companyId,
+          roleId: adminRole.RoleID,
+          warehouseId,
+          firstName,
+          lastName,
+          email,
+          passwordHash,
           modules: JSON.stringify(defaultModules),
         }
       );
-      const userId = userResult.insertId;
 
+      // 5. Insert Company Settings
       await conn.query(
         `INSERT INTO CompanySettings (CompanyID, FullName, Address, ContactEmail)
          VALUES (:companyId, :fullName, :address, :email)`,
         { companyId, fullName: companyName, address: fullAddress, email }
       );
 
+      // 6. Log User Activity
       await conn.query(
-        `INSERT INTO UserActivity (UserID, ActivityType, Module, Description)
-         VALUES (:userId, 'Create', 'Auth', 'Company registered and admin account created')`,
-        { userId }
+        `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, Description)
+         VALUES (:userActivityId, :userId, 'Create', 'Auth', 'Company registered and admin account created')`,
+        { userActivityId, userId }
       );
 
       await conn.commit();
 
       const token = jwt.sign(
-        { userId, companyId, roleId: adminRole.RoleID, roleName: "Admin", email },
+        { userId, companyId, roleId: adminRole.RoleID, roleName: adminRole.RoleName, email },
         process.env.JWT_SECRET,
         { expiresIn: process.env.JWT_EXPIRES_IN || "8h" }
       );
 
       res.status(201).json({
         token,
-        user: { id: userId, firstName, lastName, email, role: "Admin", companyId },
+        user: { id: userId, firstName, lastName, email, role: adminRole.RoleName, companyId },
       });
     } catch (err) {
       await conn.rollback();
@@ -193,10 +218,7 @@ function hashToken(rawToken) {
   return crypto.createHash("sha256").update(rawToken).digest("hex");
 }
 
-// POST /auth/forgot-password  { email }
-// Always responds with the same generic success message whether or not the
-// email exists — this prevents attackers from using this endpoint to discover
-// which emails are registered ("email enumeration").
+// POST /auth/forgot-password
 router.post(
   "/forgot-password",
   asyncHandler(async (req, res) => {
@@ -214,7 +236,6 @@ router.post(
     const user = rows[0];
 
     if (!user || user.Status !== "Active") {
-      // Don't reveal whether the account exists — respond the same either way.
       return res.json(genericResponse);
     }
 
@@ -222,7 +243,6 @@ router.post(
     const tokenHash = hashToken(rawToken);
     const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000);
 
-    // Invalidate any previous unused tokens for this user before issuing a new one.
     await pool.query(
       `UPDATE PasswordResetToken SET UsedAt = NOW() WHERE UserID = :userId AND UsedAt IS NULL`,
       { userId: user.UserID }
@@ -254,9 +274,6 @@ router.post(
       });
     } catch (err) {
       console.error("Failed to send password reset email:", err);
-      // Still return the generic success response — we don't want to leak
-      // whether the email send failed vs. the account not existing, and a
-      // transient SMTP outage shouldn't surface as a scary error to the user.
     }
 
     res.json(genericResponse);
@@ -264,9 +281,6 @@ router.post(
 );
 
 // GET /auth/reset-password/validate?token=...
-// Lets the frontend check a token is still valid before showing the "new
-// password" form, so the user isn't told "invalid" only after typing a new
-// password.
 router.get(
   "/reset-password/validate",
   asyncHandler(async (req, res) => {
@@ -287,7 +301,7 @@ router.get(
   })
 );
 
-// POST /auth/reset-password  { token, newPassword }
+// POST /auth/reset-password
 router.post(
   "/reset-password",
   asyncHandler(async (req, res) => {
@@ -318,10 +332,12 @@ router.post(
       await conn.query(`UPDATE PasswordResetToken SET UsedAt = NOW() WHERE TokenID = :id`, {
         id: record.TokenID,
       });
+
+      const userActivityId = generateId("UA");
       await conn.query(
-        `INSERT INTO UserActivity (UserID, ActivityType, Module, Description)
-         VALUES (:userId, 'Update', 'Auth', 'Password reset via email link')`,
-        { userId: record.UserID }
+        `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, Description)
+         VALUES (:userActivityId, :userId, 'Update', 'Auth', 'Password reset via email link')`,
+        { userActivityId, userId: record.UserID }
       );
 
       await conn.commit();

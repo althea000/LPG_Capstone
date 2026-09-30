@@ -5,6 +5,35 @@ const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 const { parseCsv } = require("../utils/csv");
 
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const normalizedPrefix = String(prefix || "").toUpperCase();
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern`,
+    { pattern: `${normalizedPrefix}%` }
+  );
+
+  let max = 0;
+  const matcher = new RegExp(`^${normalizedPrefix}-?([0-9]+)$`);
+  for (const row of rows) {
+    const candidate = String(row.id || "").toUpperCase();
+    const match = candidate.match(matcher);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+
+  let next = max + 1;
+  while (true) {
+    const candidateId = `${normalizedPrefix}-${String(next).padStart(pad, "0")}`;
+    const [existsRows] = await conn.query(
+      `SELECT ${column} AS id FROM ${table} WHERE ${column} = :id LIMIT 1`,
+      { id: candidateId }
+    );
+    if (!existsRows[0]) return candidateId;
+    next += 1;
+  }
+}
+
 router.use(authenticate);
 
 function statusFor(stockOnHand, reorderLevel) {
@@ -70,11 +99,13 @@ async function getOrCreateInventory(conn, warehouseId, productId) {
     { warehouseId, productId }
   );
   if (rows[0]) return rows[0];
-  const [result] = await conn.query(
-    `INSERT INTO Inventory (WarehouseID, ProductID, StockOnHand) VALUES (:warehouseId, :productId, 0)`,
-    { warehouseId, productId }
+  const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+  await conn.query(
+    `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand)
+     VALUES (:inventoryId, :warehouseId, :productId, 0)`,
+    { inventoryId, warehouseId, productId }
   );
-  return { InventoryID: result.insertId, StockOnHand: 0 };
+  return { InventoryID: inventoryId, StockOnHand: 0 };
 }
 
 // POST /inventory/stock-in  { warehouseId, referenceNo, items:[{productId, quantity}] }
@@ -89,15 +120,23 @@ router.post(
     try {
       await conn.beginTransaction();
       for (const item of items) {
+        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
         await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :id`, {
           qty: item.quantity,
           id: inv.InventoryID,
         });
         await conn.query(
-          `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:invId, :userId, 'Stock In', :qty, 'Purchase', :ref, :remarks)`,
-          { invId: inv.InventoryID, userId: req.user.userId, qty: item.quantity, ref: referenceNo || null, remarks: remarks || null }
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
+           VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, 'Purchase', :ref, :remarks)`,
+          {
+            transactionId,
+            invId: inv.InventoryID,
+            userId: req.user.userId,
+            qty: item.quantity,
+            ref: referenceNo || null,
+            remarks: remarks || null,
+          }
         );
       }
       await conn.commit();
@@ -123,6 +162,7 @@ router.post(
     try {
       await conn.beginTransaction();
       for (const item of items) {
+        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
         if (inv.StockOnHand < item.quantity) {
           throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
@@ -132,9 +172,10 @@ router.post(
           id: inv.InventoryID,
         });
         await conn.query(
-          `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:invId, :userId, 'Stock Out', :qty, :reason, :ref, :remarks)`,
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
+           VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, :reason, :ref, :remarks)`,
           {
+            transactionId,
             invId: inv.InventoryID,
             userId: req.user.userId,
             qty: item.quantity,
@@ -167,6 +208,7 @@ router.post(
     try {
       await conn.beginTransaction();
       for (const item of items) {
+        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
         const diff = item.newQuantity - inv.StockOnHand;
         if (diff === 0) continue;
@@ -175,9 +217,10 @@ router.post(
           id: inv.InventoryID,
         });
         await conn.query(
-          `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, Remarks)
-           VALUES (:invId, :userId, :type, :qty, 'Adjustment', :remarks)`,
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, Remarks)
+           VALUES (:transactionId, :invId, :userId, :type, :qty, 'Adjustment', :remarks)`,
           {
+            transactionId,
             invId: inv.InventoryID,
             userId: req.user.userId,
             type: diff > 0 ? "Stock In" : "Stock Out",
@@ -259,14 +302,16 @@ router.post(
           const diff = newQuantity - inv.StockOnHand;
 
           if (diff !== 0) {
+            const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
             await conn.query(`UPDATE Inventory SET StockOnHand = :qty WHERE InventoryID = :id`, {
               qty: newQuantity,
               id: inv.InventoryID,
             });
             await conn.query(
-              `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-               VALUES (:invId, :userId, :type, :qty, 'Adjustment', :ref, 'Imported from CSV')`,
+              `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
+               VALUES (:transactionId, :invId, :userId, :type, :qty, 'Adjustment', :ref, 'Imported from CSV')`,
               {
+                transactionId,
                 invId: inv.InventoryID,
                 userId: req.user.userId,
                 type: diff > 0 ? "Stock In" : "Stock Out",
@@ -286,10 +331,11 @@ router.post(
         throw new ApiError(400, `No rows could be imported. Errors: ${errors.join("; ")}`);
       }
 
+      const dataActivityId = await nextId(conn, "DataActivityLog", "DataActivityID", "DA");
       await conn.query(
-        `INSERT INTO DataActivityLog (UserID, ActivityType, DataType, FileName, FileFormat, Status)
-         VALUES (:userId, 'Import', 'Inventory Data', :fileName, 'CSV', 'Successful')`,
-        { userId: req.user.userId, fileName: fileName || "inventory_import.csv" }
+        `INSERT INTO DataActivityLog (DataActivityID, UserID, ActivityType, DataType, FileName, FileFormat, Status)
+         VALUES (:dataActivityId, :userId, 'Import', 'Inventory Data', :fileName, 'CSV', 'Successful')`,
+        { dataActivityId, userId: req.user.userId, fileName: fileName || "inventory_import.csv" }
       );
 
       await conn.commit();
@@ -350,14 +396,16 @@ router.put(
 
       const diff = Number(newQuantity) - rows[0].StockOnHand;
       if (diff !== 0) {
+        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         await conn.query(`UPDATE Inventory SET StockOnHand = :qty WHERE InventoryID = :id`, {
           qty: newQuantity,
           id: req.params.id,
         });
         await conn.query(
-          `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, Remarks)
-           VALUES (:invId, :userId, :type, :qty, 'Adjustment', :remarks)`,
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, Remarks)
+           VALUES (:transactionId, :invId, :userId, :type, :qty, 'Adjustment', :remarks)`,
           {
+            transactionId,
             invId: req.params.id,
             userId: req.user.userId,
             type: diff > 0 ? "Stock In" : "Stock Out",
@@ -426,10 +474,12 @@ router.delete(
       await conn.query(`DELETE FROM Inventory WHERE InventoryID = :id`, { id: req.params.id });
 
       if (force && count > 0) {
+        const userActivityId = await nextId(conn, "UserActivity", "UserActivityID", "UA");
         await conn.query(
-          `INSERT INTO UserActivity (UserID, ActivityType, Module, RecordID, Description)
-           VALUES (:userId, 'Delete', 'Inventory', :recordId, :description)`,
+          `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
+           VALUES (:userActivityId, :userId, 'Delete', 'Inventory', :recordId, :description)`,
           {
+            userActivityId,
             userId: req.user.userId,
             recordId: req.params.id,
             description: `Force-deleted inventory record and its ${count} transaction record(s)`,

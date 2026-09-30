@@ -15,10 +15,24 @@ function authenticate(req, res, next) {
   }
 }
 
+function canonicalRole(role) {
+  const raw = String(role || "").trim().toLowerCase();
+  if (!raw) return "";
+
+  if (raw === "admin" || raw === "administrator") return "administrator";
+  if (raw === "manager" || raw === "operations supervisor") return "operations supervisor";
+
+  return raw;
+}
+
 function authorize(...allowedRoles) {
   return (req, res, next) => {
     if (!req.user) return next(new ApiError(401, "Not authenticated"));
-    if (allowedRoles.length && !allowedRoles.includes(req.user.roleName)) {
+
+    const userRole = canonicalRole(req.user.roleName);
+    const allowed = new Set(allowedRoles.map(canonicalRole));
+
+    if (allowedRoles.length && !allowed.has(userRole)) {
       return next(new ApiError(403, "You do not have permission to perform this action"));
     }
     next();

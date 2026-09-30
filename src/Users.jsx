@@ -16,6 +16,19 @@ import "./Users.css";
 
 const PAGE_SIZE = 10;
 
+const ROLE_OPTIONS = [
+  "Administrator",
+  "Operations Supervisor",
+  "Assistant Operations Supervisor",
+  "Store Supervisor",
+  "Assistant Store Supervisor",
+  "Stockman",
+  "Head Maintenance",
+  "Drivers",
+  "Helpers",
+  "Customer",
+];
+
 // ---------------------------------------------------------------------------
 // Small pieces
 // ---------------------------------------------------------------------------
@@ -127,7 +140,11 @@ export default function Users() {
     loadActivityLog();
   }, []);
 
-  const roles = useMemo(() => ["All Roles", ...new Set(users.map((u) => u.role))], [users]);
+  const roles = useMemo(() => {
+    const existing = new Set(users.map((u) => u.role).filter(Boolean));
+    const ordered = [...ROLE_OPTIONS, ...[...existing].filter((r) => !ROLE_OPTIONS.includes(r))];
+    return ["All Roles", ...ordered];
+  }, [users]);
   const statuses = ["All Status", "Active", "Inactive"];
   const branches = useMemo(
     () => ["All Branch/Warehouse", ...new Set(users.map((u) => u.branch).filter(Boolean))],

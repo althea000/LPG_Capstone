@@ -6,7 +6,36 @@ const { authenticate } = require("../middleware/auth");
 const { nextSequence } = require("../utils/generateNumbers");
 const { parseCsv } = require("../utils/csv");
 
-const DEFAULT_WAREHOUSE_ID = 1; // POS terminal deducts from the main warehouse by default
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const normalizedPrefix = String(prefix || "").toUpperCase();
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern`,
+    { pattern: `${normalizedPrefix}%` }
+  );
+
+  let max = 0;
+  const matcher = new RegExp(`^${normalizedPrefix}-?([0-9]+)$`);
+  for (const row of rows) {
+    const candidate = String(row.id || "").toUpperCase();
+    const match = candidate.match(matcher);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+
+  let next = max + 1;
+  while (true) {
+    const candidateId = `${normalizedPrefix}-${String(next).padStart(pad, "0")}`;
+    const [existsRows] = await conn.query(
+      `SELECT ${column} AS id FROM ${table} WHERE ${column} = :id LIMIT 1`,
+      { id: candidateId }
+    );
+    if (!existsRows[0]) return candidateId;
+    next += 1;
+  }
+}
+
+const DEFAULT_WAREHOUSE_ID = "WH-001"; // POS terminal deducts from the main warehouse by default
 
 router.use(authenticate);
 
@@ -92,14 +121,12 @@ router.post(
     }
 
     for (const item of items) {
-      const pid = Number(item.productId);
-      if (!Number.isInteger(pid) || pid <= 0) {
-        throw new ApiError(
-          400,
-          `Invalid productId "${item.productId}" — expected a numeric Product ID from the database.`
-        );
+      if (!item.productId || !item.qty || Number(item.qty) <= 0) {
+        throw new ApiError(400, `Invalid productId "${item.productId}" or quantity.`);
       }
-      item.productId = pid;
+      item.productId = String(item.productId);
+      item.qty = Number(item.qty);
+      item.unitPrice = Number(item.unitPrice);
     }
 
     const { rate: taxRate, enabled: taxEnabled } = await getTaxSettings(req.user.companyId);
@@ -115,12 +142,16 @@ router.post(
         if (existing[0]) {
           customerId = existing[0].CustomerID;
         } else {
-          const [created] = await conn.query(
-            `INSERT INTO Customer (CustomerType, ContactNo, Address, Status)
-             VALUES (:type, 'WALKIN', 'Walk-in', 'Active')`,
-            { type: customerType === "Business Account" ? "Commercial" : "Residential" }
+          const newCustomerId = await nextId(conn, "Customer", "CustomerID", "CUST");
+          await conn.query(
+            `INSERT INTO Customer (CustomerID, CustomerType, ContactNo, Address, Status)
+             VALUES (:customerId, :type, 'WALKIN', 'Walk-in', 'Active')`,
+            {
+              customerId: newCustomerId,
+              type: customerType === "Business Account" ? "Commercial" : "Residential",
+            }
           );
-          customerId = created.insertId;
+          customerId = newCustomerId;
         }
       }
 
@@ -131,12 +162,12 @@ router.post(
       const wid = warehouseId || DEFAULT_WAREHOUSE_ID;
 
       const orderNo = await nextSequence(pool, "`Order`", "OrderNo", "ORD");
-      const [orderResult] = await conn.query(
-        `INSERT INTO \`Order\` (CustomerID, OrderNo, OrderType, OrderStatus, TotalAmount, Remarks)
-         VALUES (:customerId, :orderNo, 'Walk-in', 'Completed', :totalAmount, :remarks)`,
-        { customerId, orderNo, totalAmount, remarks: remarks || null }
+      const orderId = await nextId(conn, "`Order`", "OrderID", "ORD");
+      await conn.query(
+        `INSERT INTO \`Order\` (OrderID, CustomerID, OrderNo, OrderType, OrderStatus, TotalAmount, Remarks)
+         VALUES (:orderId, :customerId, :orderNo, 'Walk-in', 'Completed', :totalAmount, :remarks)`,
+        { orderId, customerId, orderNo, totalAmount, remarks: remarks || null }
       );
-      const orderId = orderResult.insertId;
 
       for (const item of items) {
         const [productRows] = await conn.query(
@@ -147,10 +178,12 @@ router.post(
           throw new ApiError(400, `Product ID ${item.productId} does not exist.`);
         }
 
+        const orderDetailId = await nextId(conn, "OrderDetails", "OrderDetailID", "OD");
         await conn.query(
-          `INSERT INTO OrderDetails (OrderID, ProductID, Quantity, UnitPrice, Subtotal)
-           VALUES (:orderId, :productId, :qty, :unitPrice, :subtotal)`,
+          `INSERT INTO OrderDetails (OrderDetailID, OrderID, ProductID, Quantity, UnitPrice, Subtotal)
+           VALUES (:orderDetailId, :orderId, :productId, :qty, :unitPrice, :subtotal)`,
           {
+            orderDetailId,
             orderId,
             productId: item.productId,
             qty: item.qty,
@@ -165,11 +198,12 @@ router.post(
         );
         let inv = invRows[0];
         if (!inv) {
-          const [ins] = await conn.query(
-            `INSERT INTO Inventory (WarehouseID, ProductID, StockOnHand) VALUES (:wid, :pid, 0)`,
-            { wid, pid: item.productId }
+          const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+          await conn.query(
+            `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand) VALUES (:inventoryId, :wid, :pid, 0)`,
+            { inventoryId, wid, pid: item.productId }
           );
-          inv = { InventoryID: ins.insertId, StockOnHand: 0 };
+          inv = { InventoryID: inventoryId, StockOnHand: 0 };
         }
         if (inv.StockOnHand < item.qty) {
           throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
@@ -178,18 +212,21 @@ router.post(
           qty: item.qty,
           id: inv.InventoryID,
         });
+        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         await conn.query(
-          `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
-           VALUES (:invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
-          { invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
+           VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
+          { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
         );
       }
 
       const saleNo = await nextSequence(pool, "Sales", "SaleNo", "SALE");
-      const [saleResult] = await conn.query(
-        `INSERT INTO Sales (OrderID, CustomerID, UserID, SaleNo, SalesDiscount, TotalAmount, Remarks)
-         VALUES (:orderId, :customerId, :userId, :saleNo, :discount, :totalAmount, :remarks)`,
+      const saleId = await nextId(conn, "Sales", "SaleID", "S");
+      await conn.query(
+        `INSERT INTO Sales (SaleID, OrderID, CustomerID, UserID, SaleNo, SalesDiscount, TotalAmount, Remarks)
+         VALUES (:saleId, :orderId, :customerId, :userId, :saleNo, :discount, :totalAmount, :remarks)`,
         {
+          saleId,
           orderId,
           customerId,
           userId: req.user.userId,
@@ -201,16 +238,17 @@ router.post(
       );
 
       if (paymentMethod && amountCollected) {
+        const paymentId = await nextId(conn, "Payment", "PaymentID", "PAY");
         await conn.query(
-          `INSERT INTO Payment (PaymentType, SaleID, PaymentMethod, AmountPaid)
-           VALUES ('Sale', :saleId, :method, :amount)`,
-          { saleId: saleResult.insertId, method: paymentMethod, amount: amountCollected }
+          `INSERT INTO Payment (PaymentID, PaymentType, SaleID, PaymentMethod, AmountPaid)
+           VALUES (:paymentId, 'Sale', :saleId, :method, :amount)`,
+          { paymentId, saleId, method: paymentMethod, amount: amountCollected }
         );
       }
 
       await conn.commit();
       res.status(201).json({
-        saleId: saleResult.insertId,
+        saleId,
         saleNo,
         subtotal,
         vat,
@@ -268,11 +306,12 @@ router.post(
       );
       let importCustomerId = existingCustomer[0]?.CustomerID;
       if (!importCustomerId) {
-        const [created] = await conn.query(
-          `INSERT INTO Customer (CustomerType, ContactNo, Address, Status)
-           VALUES ('Residential', 'IMPORTED', 'Imported sales', 'Active')`
+        importCustomerId = await nextId(conn, "Customer", "CustomerID", "CUST");
+        await conn.query(
+          `INSERT INTO Customer (CustomerID, CustomerType, ContactNo, Address, Status)
+           VALUES (:customerId, 'Residential', 'IMPORTED', 'Imported sales', 'Active')`,
+          { customerId: importCustomerId }
         );
-        importCustomerId = created.insertId;
       }
 
       for (const [ref, lineItems] of groups.entries()) {
@@ -286,10 +325,10 @@ router.post(
           let subtotal = 0;
           const validatedItems = [];
           for (const li of lineItems) {
-            const productId = Number(li.ProductID);
+            const productId = String(li.ProductID || "").trim();
             const qty = Number(li.Quantity);
             const unitPrice = Number(li.UnitPrice);
-            if (!Number.isInteger(productId) || productId <= 0 || !qty || qty <= 0 || isNaN(unitPrice)) {
+            if (!productId || !qty || qty <= 0 || isNaN(unitPrice)) {
               throw new Error(`Invalid row in group ${ref}: ${JSON.stringify(li)}`);
             }
             const [productRows] = await conn.query(`SELECT ProductID FROM Product WHERE ProductID = :pid`, {
@@ -304,10 +343,12 @@ router.post(
           const totalAmount = subtotal - discount + vat;
 
           const orderNo = await nextSequence(pool, "`Order`", "OrderNo", "ORD");
-          const [orderResult] = await conn.query(
-            `INSERT INTO \`Order\` (CustomerID, OrderNo, OrderDate, OrderType, OrderStatus, TotalAmount, Remarks)
-             VALUES (:customerId, :orderNo, :saleDate, 'Walk-in', 'Completed', :totalAmount, :remarks)`,
+          const orderId = await nextId(conn, "`Order`", "OrderID", "ORD");
+          await conn.query(
+            `INSERT INTO \`Order\` (OrderID, CustomerID, OrderNo, OrderDate, OrderType, OrderStatus, TotalAmount, Remarks)
+             VALUES (:orderId, :customerId, :orderNo, :saleDate, 'Walk-in', 'Completed', :totalAmount, :remarks)`,
             {
+              orderId,
               customerId: importCustomerId,
               orderNo,
               saleDate,
@@ -315,13 +356,14 @@ router.post(
               remarks: `Imported from ${fileName || "CSV"} (ref: ${ref})`,
             }
           );
-          const orderId = orderResult.insertId;
 
           for (const item of validatedItems) {
+            const orderDetailId = await nextId(conn, "OrderDetails", "OrderDetailID", "OD");
             await conn.query(
-              `INSERT INTO OrderDetails (OrderID, ProductID, Quantity, UnitPrice, Subtotal)
-               VALUES (:orderId, :productId, :qty, :unitPrice, :subtotal)`,
+              `INSERT INTO OrderDetails (OrderDetailID, OrderID, ProductID, Quantity, UnitPrice, Subtotal)
+               VALUES (:orderDetailId, :orderId, :productId, :qty, :unitPrice, :subtotal)`,
               {
+                orderDetailId,
                 orderId,
                 productId: item.productId,
                 qty: item.qty,
@@ -337,31 +379,35 @@ router.post(
               );
               let inv = invRows[0];
               if (!inv) {
-                const [ins] = await conn.query(
-                  `INSERT INTO Inventory (WarehouseID, ProductID, StockOnHand) VALUES (:wid, :pid, 0)`,
-                  { wid: DEFAULT_WAREHOUSE_ID, pid: item.productId }
+                const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+                await conn.query(
+                  `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand) VALUES (:inventoryId, :wid, :pid, 0)`,
+                  { inventoryId, wid: DEFAULT_WAREHOUSE_ID, pid: item.productId }
                 );
-                inv = { InventoryID: ins.insertId, StockOnHand: 0 };
+                inv = { InventoryID: inventoryId, StockOnHand: 0 };
               }
               if (inv.StockOnHand >= item.qty) {
                 await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`, {
                   qty: item.qty,
                   id: inv.InventoryID,
                 });
+                const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
                 await conn.query(
-                  `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
-                   VALUES (:invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
-                  { invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
+                  `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
+                   VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
+                  { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
                 );
               }
             }
           }
 
           const saleNo = await nextSequence(pool, "Sales", "SaleNo", "SALE");
-          const [saleResult] = await conn.query(
-            `INSERT INTO Sales (OrderID, CustomerID, UserID, SaleNo, SaleDate, SalesDiscount, TotalAmount, Remarks)
-             VALUES (:orderId, :customerId, :userId, :saleNo, :saleDate, :discount, :totalAmount, :remarks)`,
+          const saleId = await nextId(conn, "Sales", "SaleID", "S");
+          await conn.query(
+            `INSERT INTO Sales (SaleID, OrderID, CustomerID, UserID, SaleNo, SaleDate, SalesDiscount, TotalAmount, Remarks)
+             VALUES (:saleId, :orderId, :customerId, :userId, :saleNo, :saleDate, :discount, :totalAmount, :remarks)`,
             {
+              saleId,
               orderId,
               customerId: importCustomerId,
               userId: req.user.userId,
@@ -373,10 +419,11 @@ router.post(
             }
           );
 
+          const paymentId = await nextId(conn, "Payment", "PaymentID", "PAY");
           await conn.query(
-            `INSERT INTO Payment (PaymentType, SaleID, PaymentMethod, AmountPaid, PaymentDate)
-             VALUES ('Sale', :saleId, :method, :amount, :saleDate)`,
-            { saleId: saleResult.insertId, method: paymentMethod, amount: totalAmount, saleDate }
+            `INSERT INTO Payment (PaymentID, PaymentType, SaleID, PaymentMethod, AmountPaid, PaymentDate)
+             VALUES (:paymentId, 'Sale', :saleId, :method, :amount, :saleDate)`,
+            { paymentId, saleId, method: paymentMethod, amount: totalAmount, saleDate }
           );
 
           importedCount++;
@@ -389,10 +436,11 @@ router.post(
         throw new ApiError(400, `No rows could be imported. Errors: ${errors.join("; ")}`);
       }
 
+      const dataActivityId = await nextId(conn, "DataActivityLog", "DataActivityID", "DA");
       await conn.query(
-        `INSERT INTO DataActivityLog (UserID, ActivityType, DataType, FileName, FileFormat, Status)
-         VALUES (:userId, 'Import', 'Sales Data', :fileName, 'CSV', 'Successful')`,
-        { userId: req.user.userId, fileName: fileName || "sales_import.csv" }
+        `INSERT INTO DataActivityLog (DataActivityID, UserID, ActivityType, DataType, FileName, FileFormat, Status)
+         VALUES (:dataActivityId, :userId, 'Import', 'Sales Data', :fileName, 'CSV', 'Successful')`,
+        { dataActivityId, userId: req.user.userId, fileName: fileName || "sales_import.csv" }
       );
 
       await conn.commit();
@@ -452,10 +500,11 @@ router.delete(
             `UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :id`,
             { qty: item.Quantity, id: invRows[0].InventoryID }
           );
+          const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
           await conn.query(
-            `INSERT INTO InventoryTransaction (InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-             VALUES (:invId, :userId, 'Stock In', :qty, 'Adjustment', :ref, 'Sale voided — stock restored')`,
-            { invId: invRows[0].InventoryID, userId: req.user.userId, qty: item.Quantity, ref: `VOID-SALE-${req.params.id}` }
+            `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
+             VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, 'Adjustment', :ref, 'Sale voided — stock restored')`,
+            { transactionId, invId: invRows[0].InventoryID, userId: req.user.userId, qty: item.Quantity, ref: `VOID-SALE-${req.params.id}` }
           );
         }
       }

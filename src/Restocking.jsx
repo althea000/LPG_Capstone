@@ -389,8 +389,8 @@ export default function Restocking() {
                               onChange={() => toggleRowSelect(item.restockId)}
                             />
                           </td>
-                          <td>R-{String(item.restockId).padStart(3, "0")}</td>
-                          <td>P-{String(item.productId).padStart(3, "0")}</td>
+                          <td>{item.restockId}</td>
+                          <td>{item.productId}</td>
                           <td>{item.currentStock}</td>
                           <td>{item.reorderLevel}</td>
                           <td>{item.suggestedQty}</td>

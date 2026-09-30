@@ -4,9 +4,14 @@ let cachedSettings = null;
 let cacheTime = 0;
 
 // Settings rarely change mid-session, so cache for a minute to avoid refetching on every print.
-async function getSettings() {
+export function clearReceiptSettingsCache() {
+  cachedSettings = null;
+  cacheTime = 0;
+}
+
+async function getSettings({ forceRefresh = false } = {}) {
   const now = Date.now();
-  if (cachedSettings && now - cacheTime < 60000) return cachedSettings;
+  if (!forceRefresh && cachedSettings && now - cacheTime < 60000) return cachedSettings;
   try {
     cachedSettings = await apiRequest("/settings");
     cacheTime = now;
@@ -177,16 +182,32 @@ function printViaIframe(html) {
     iframe.onload = () => {
       try {
         const win = iframe.contentWindow;
-        win.focus();
-        // Some mobile browsers need a tick after focus before print() reliably opens the dialog.
-        setTimeout(() => {
-          try {
-            win.print();
-          } catch (err) {
-            console.error("Print failed:", err);
-          }
-          cleanup();
-        }, 150);
+        const doc = win.document;
+        const images = Array.from(doc.images || []);
+
+        const waitForImages = Promise.all(
+          images.map(
+            (img) =>
+              new Promise((resolve) => {
+                if (img.complete) return resolve();
+                img.onload = () => resolve();
+                img.onerror = () => resolve();
+              })
+          )
+        );
+
+        waitForImages.finally(() => {
+          win.focus();
+          // Some mobile browsers need a tick after focus before print() reliably opens the dialog.
+          setTimeout(() => {
+            try {
+              win.print();
+            } catch (err) {
+              console.error("Print failed:", err);
+            }
+            cleanup();
+          }, 150);
+        });
       } catch (err) {
         console.error("Print failed:", err);
         cleanup();
@@ -211,7 +232,7 @@ function printViaIframe(html) {
  *                          subtotal, discount, vat, taxRate, deliveryFee, totalAmount }
  */
 export async function printReceipt(sale) {
-  const settings = await getSettings();
+  const settings = await getSettings({ forceRefresh: true });
   const html = buildReceiptHtml(sale, settings);
 
   try {

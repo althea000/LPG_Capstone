@@ -82,9 +82,9 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
 
     const payload = {
       productName: form.productName,
-      categoryId: Number(form.categoryId),
-      brandId: Number(form.brandId),
-      supplierId: Number(form.supplierId),
+      categoryId: String(form.categoryId),
+      brandId: String(form.brandId),
+      supplierId: String(form.supplierId),
       unit: form.unit,
       unitPrice: Number(form.unitPrice) || 0,
       costPrice: Number(form.costPrice) || 0,
