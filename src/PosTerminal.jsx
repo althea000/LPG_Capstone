@@ -4,6 +4,12 @@ import PaymentModal from "./PaymentModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
 import productFallbackImage from "./assets/gasul/gasul-11kg.png";
+import gasul27Image from "./assets/gasul/gasul-2.7kg.png";
+import gasul7Image from "./assets/gasul/gasul-7kg.png";
+import gasul11Image from "./assets/gasul/gasul-11kg.png";
+import gasul11EliteImage from "./assets/gasul/gasul-elite11kg.png";
+import gasul22Image from "./assets/gasul/gasul-22kg.png";
+import gasul50Image from "./assets/gasul/gasul-50kg.png";
 import "./PosTerminal.css";
 
 const discountOptions = [
@@ -18,6 +24,34 @@ const HELD_CARTS_KEY = "gastrack_held_carts";
 const POS_WAREHOUSE_ID = "WH-001";
 const PRODUCT_IMAGE_PLACEHOLDER = "https://via.placeholder.com/300x200?text=LPG+Cylinder";
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim();
+const LOCAL_PRODUCT_IMAGES = {
+  "src/assets/gasul/gasul-2.7kg.png": gasul27Image,
+  "src/assets/gasul/gasul-7kg.png": gasul7Image,
+  "src/assets/gasul/gasul-11kg.png": gasul11Image,
+  "src/assets/gasul/gasul-elite11kg.png": gasul11EliteImage,
+  "src/assets/gasul/gasul-22kg.png": gasul22Image,
+  "src/assets/gasul/gasul-50kg.png": gasul50Image,
+  "gasul-2.7kg.png": gasul27Image,
+  "gasul-7kg.png": gasul7Image,
+  "gasul-11kg.png": gasul11Image,
+  "gasul-elite11kg.png": gasul11EliteImage,
+  "gasul-22kg.png": gasul22Image,
+  "gasul-50kg.png": gasul50Image,
+};
+
+function resolveBundledProductImage(imageUrl) {
+  if (typeof imageUrl !== "string") return "";
+
+  const normalized = imageUrl.trim().replace(/\\/g, "/").replace(/^\.?\//, "").toLowerCase();
+  if (!normalized) return "";
+
+  if (LOCAL_PRODUCT_IMAGES[normalized]) return LOCAL_PRODUCT_IMAGES[normalized];
+
+  const fileName = normalized.split("/").pop();
+  if (fileName && LOCAL_PRODUCT_IMAGES[fileName]) return LOCAL_PRODUCT_IMAGES[fileName];
+
+  return "";
+}
 
 function getApiOrigin() {
   if (!API_BASE_URL) return "";
@@ -39,6 +73,9 @@ function normalizeProductImageUrl(imageUrl) {
   const trimmedUrl = imageUrl.trim();
   if (!trimmedUrl) return PRODUCT_IMAGE_PLACEHOLDER;
 
+  const bundledImageUrl = resolveBundledProductImage(trimmedUrl);
+  if (bundledImageUrl) return bundledImageUrl;
+
   const protocolUpgradedUrl = trimmedUrl.startsWith("http://")
     ? `https://${trimmedUrl.slice("http://".length)}`
     : trimmedUrl;
@@ -48,6 +85,8 @@ function normalizeProductImageUrl(imageUrl) {
   if (/^https?:\/\//i.test(protocolUpgradedUrl)) return protocolUpgradedUrl;
 
   if (protocolUpgradedUrl.startsWith("//")) return `https:${protocolUpgradedUrl}`;
+
+  if (/^\/?src\//i.test(protocolUpgradedUrl)) return PRODUCT_IMAGE_PLACEHOLDER;
 
   const apiOrigin = getApiOrigin();
   if (!apiOrigin) return PRODUCT_IMAGE_PLACEHOLDER;

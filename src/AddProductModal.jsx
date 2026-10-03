@@ -247,10 +247,11 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
               <label>Image URL</label>
               <input
                 type="text"
-                placeholder="assets/products/example.png"
+                placeholder="gasul-50kg.png or https://example.com/image.png"
                 value={form.imageUrl}
                 onChange={(e) => updateField("imageUrl", e.target.value)}
               />
+              <small className="form-field-hint">Use filename (e.g., gasul-50kg.png) or full https URL.</small>
             </div>
           </div>
 
