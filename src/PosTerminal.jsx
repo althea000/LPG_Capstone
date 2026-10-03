@@ -3,6 +3,7 @@ import { Search, ChevronDown, ShoppingCart, Wallet, Minus, Plus, X, PauseCircle 
 import PaymentModal from "./PaymentModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
+import productFallbackImage from "./assets/gasul/gasul-11kg.png";
 import "./PosTerminal.css";
 
 const discountOptions = [
@@ -16,6 +17,21 @@ const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
 const POS_WAREHOUSE_ID = "WH-001";
 const PRODUCT_IMAGE_PLACEHOLDER = "https://via.placeholder.com/300x200?text=LPG+Cylinder";
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim();
+
+function getApiOrigin() {
+  if (!API_BASE_URL) return "";
+  try {
+    return new URL(API_BASE_URL).origin;
+  } catch {
+    return "";
+  }
+}
+
+function isLocalHostUrl(url) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(url)
+    || /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(url);
+}
 
 function normalizeProductImageUrl(imageUrl) {
   if (typeof imageUrl !== "string") return PRODUCT_IMAGE_PLACEHOLDER;
@@ -23,20 +39,24 @@ function normalizeProductImageUrl(imageUrl) {
   const trimmedUrl = imageUrl.trim();
   if (!trimmedUrl) return PRODUCT_IMAGE_PLACEHOLDER;
 
-  const upgradedUrl = trimmedUrl.startsWith("http://")
+  const protocolUpgradedUrl = trimmedUrl.startsWith("http://")
     ? `https://${trimmedUrl.slice("http://".length)}`
     : trimmedUrl;
 
-  const isLocalhostUrl = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(upgradedUrl)
-    || /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(upgradedUrl);
+  if (isLocalHostUrl(protocolUpgradedUrl)) return PRODUCT_IMAGE_PLACEHOLDER;
 
-  if (isLocalhostUrl) return PRODUCT_IMAGE_PLACEHOLDER;
+  if (/^https?:\/\//i.test(protocolUpgradedUrl)) return protocolUpgradedUrl;
 
-  if (/^https?:\/\//i.test(upgradedUrl)) return upgradedUrl;
+  if (protocolUpgradedUrl.startsWith("//")) return `https:${protocolUpgradedUrl}`;
 
-  const baseUrl = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
-  const normalizedPath = upgradedUrl.startsWith("/") ? upgradedUrl : `/${upgradedUrl}`;
-  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+  const apiOrigin = getApiOrigin();
+  if (!apiOrigin) return PRODUCT_IMAGE_PLACEHOLDER;
+
+  const normalizedPath = protocolUpgradedUrl.startsWith("/")
+    ? protocolUpgradedUrl
+    : `/${protocolUpgradedUrl}`;
+
+  return `${apiOrigin}${normalizedPath}`;
 }
 
 function formatPeso(amount) {
@@ -65,9 +85,17 @@ function ProductCard({ product, onAdd }) {
   const imageSrc = product.image || PRODUCT_IMAGE_PLACEHOLDER;
 
   const handleImageError = (event) => {
-    if (event.currentTarget.src !== PRODUCT_IMAGE_PLACEHOLDER) {
-      event.currentTarget.src = PRODUCT_IMAGE_PLACEHOLDER;
+    const img = event.currentTarget;
+    if (img.dataset.localFallbackApplied === "1") return;
+
+    const currentSrc = img.currentSrc || img.src || "";
+    if (currentSrc.includes("via.placeholder.com/300x200")) {
+      img.dataset.localFallbackApplied = "1";
+      img.src = productFallbackImage;
+      return;
     }
+
+    img.src = PRODUCT_IMAGE_PLACEHOLDER;
   };
 
   return (
