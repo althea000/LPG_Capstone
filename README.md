@@ -21,6 +21,7 @@ mysql -u root -p gastrack < backend/db/patch_restock_confidence.sql
 npm run seed
 npm run seed:products
 npm run seed:reports
+npm run seed:demo:jose
 
 npm run dev
 
