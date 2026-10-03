@@ -58,11 +58,121 @@ async function ensureCustomer(conn, data) {
   return customerId;
 }
 
+async function ensureSchema(conn) {
+  const [tableRows] = await conn.query(
+    `SELECT TABLE_NAME
+     FROM INFORMATION_SCHEMA.TABLES
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'ComplianceReport'
+     LIMIT 1`
+  );
+
+  if (tableRows.length) {
+    const [reportIdRows] = await conn.query(
+      `SELECT DATA_TYPE, EXTRA
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'ComplianceReport'
+         AND COLUMN_NAME = 'ReportID'
+       LIMIT 1`
+    );
+
+    if (reportIdRows.length) {
+      const dataType = String(reportIdRows[0].DATA_TYPE || "").toLowerCase();
+      const extra = String(reportIdRows[0].EXTRA || "").toLowerCase();
+      const isIntegerType = ["tinyint", "smallint", "mediumint", "int", "bigint"].includes(dataType);
+      const isAutoIncrement = extra.includes("auto_increment");
+
+      if (isIntegerType || isAutoIncrement) {
+        await conn.query(`DROP TABLE IF EXISTS ComplianceReport`);
+      }
+    }
+  }
+
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS ComplianceReport (
+      ReportID VARCHAR(50) NOT NULL PRIMARY KEY,
+      ReportName VARCHAR(255) NOT NULL,
+      ReportType VARCHAR(100) NULL,
+      PeriodLabel VARCHAR(100) NULL,
+      PeriodStart DATE NULL,
+      PeriodEnd DATE NULL,
+      DueDate DATE NULL,
+      Status VARCHAR(50) NOT NULL DEFAULT 'Upcoming',
+      SubmittedAt DATETIME NULL,
+      SubmittedByUserID VARCHAR(50) NULL,
+      FileName VARCHAR(255) NULL,
+      FilePath VARCHAR(500) NULL,
+      FileSize VARCHAR(50) NULL,
+      CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    )
+  `);
+
+  const [submittedByRows] = await conn.query(
+    `SELECT DATA_TYPE
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'ComplianceReport'
+       AND COLUMN_NAME = 'SubmittedByUserID'
+     LIMIT 1`
+  );
+
+  if (submittedByRows.length) {
+    const submittedByType = String(submittedByRows[0].DATA_TYPE || "").toLowerCase();
+    const numericTypes = ["tinyint", "smallint", "mediumint", "int", "bigint", "decimal", "numeric"];
+    if (numericTypes.includes(submittedByType)) {
+      await conn.query(`ALTER TABLE ComplianceReport MODIFY COLUMN SubmittedByUserID VARCHAR(50) NULL`);
+    }
+  }
+  const expectedColumns = [
+    { name: "SubmittedByUserID", definition: "VARCHAR(50) NULL" },
+    { name: "SubmittedAt", definition: "DATETIME NULL" },
+    { name: "FileName", definition: "VARCHAR(255) NULL" },
+    { name: "FilePath", definition: "VARCHAR(500) NULL" },
+    { name: "FileSize", definition: "VARCHAR(50) NULL" },
+  ];
+
+  for (const col of expectedColumns) {
+    const [columnRows] = await conn.query(
+      `SELECT COLUMN_NAME
+       FROM INFORMATION_SCHEMA.COLUMNS
+       WHERE TABLE_SCHEMA = DATABASE()
+         AND TABLE_NAME = 'ComplianceReport'
+         AND COLUMN_NAME = :columnName
+       LIMIT 1`,
+      { columnName: col.name }
+    );
+
+    if (!columnRows.length) {
+      await conn.query(`ALTER TABLE ComplianceReport ADD COLUMN ${col.name} ${col.definition}`);
+    }
+  }
+
+  const [preflightSchemaRows] = await conn.query(
+    `SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, EXTRA
+     FROM INFORMATION_SCHEMA.COLUMNS
+     WHERE TABLE_SCHEMA = DATABASE()
+       AND TABLE_NAME = 'ComplianceReport'
+       AND COLUMN_NAME IN ('ReportID', 'SubmittedByUserID')
+     ORDER BY FIELD(COLUMN_NAME, 'ReportID', 'SubmittedByUserID')`
+  );
+
+  const preflightSummary = preflightSchemaRows
+    .map((row) => `${row.COLUMN_NAME}=${row.COLUMN_TYPE}${row.EXTRA ? ` (${row.EXTRA})` : ""}`)
+    .join(", ");
+
+  console.log(`[Preflight] ComplianceReport schema: ${preflightSummary || "columns not found"}`);
+}
+
 async function main() {
   console.log("Seeding realistic demo data for Jose's company...");
   const conn = await pool.getConnection();
 
   try {
+    // Step 0: Guarantee required table schemas & columns exist
+    await ensureSchema(conn);
+
     await conn.beginTransaction();
 
     const [userRows] = await conn.query(
@@ -531,3 +641,5 @@ async function main() {
 }
 
 main();
+
+

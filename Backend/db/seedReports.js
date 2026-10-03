@@ -2,6 +2,47 @@ require("dotenv").config();
 const pool = require("../config/db");
 
 async function seedReports() {
+  // Ensure the ComplianceReport table exists with all standard columns
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ComplianceReport (
+      ReportID INT AUTO_INCREMENT PRIMARY KEY,
+      ReportName VARCHAR(255) NOT NULL,
+      ReportType VARCHAR(100),
+      PeriodLabel VARCHAR(100),
+      PeriodStart DATE,
+      PeriodEnd DATE,
+      DueDate DATE,
+      SubmittedAt DATETIME NULL,
+      FileName VARCHAR(255) NULL,
+      FilePath VARCHAR(500) NULL,
+      FileSize VARCHAR(50) NULL,
+      Status VARCHAR(50) DEFAULT 'Upcoming',
+      CreatedAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+      UpdatedAt DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    );
+  `);
+
+  // Add missing columns if table already existed without them
+  const extraColumns = [
+    "SubmittedAt DATETIME NULL",
+    "FileName VARCHAR(255) NULL",
+    "FilePath VARCHAR(500) NULL",
+    "FileSize VARCHAR(50) NULL"
+  ];
+
+  for (const colDef of extraColumns) {
+    const colName = colDef.split(" ")[0];
+    try {
+      await pool.query(`ALTER TABLE ComplianceReport ADD COLUMN IF NOT EXISTS ${colDef};`);
+    } catch (err) {
+      try {
+        await pool.query(`ALTER TABLE ComplianceReport ADD COLUMN ${colDef};`);
+      } catch (e) {
+        // Column already exists, safe to ignore
+      }
+    }
+  }
+
   const today = new Date();
   const inDays = (n) => {
     const d = new Date(today);
