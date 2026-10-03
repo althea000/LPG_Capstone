@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Search, ChevronDown, ShoppingCart, ImageOff, Wallet, Minus, Plus, X, PauseCircle } from "lucide-react";
+import { Search, ChevronDown, ShoppingCart, Wallet, Minus, Plus, X, PauseCircle } from "lucide-react";
 import PaymentModal from "./PaymentModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
@@ -15,6 +15,29 @@ const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
 const POS_WAREHOUSE_ID = "WH-001";
+const PRODUCT_IMAGE_PLACEHOLDER = "https://via.placeholder.com/300x200?text=LPG+Cylinder";
+
+function normalizeProductImageUrl(imageUrl) {
+  if (typeof imageUrl !== "string") return PRODUCT_IMAGE_PLACEHOLDER;
+
+  const trimmedUrl = imageUrl.trim();
+  if (!trimmedUrl) return PRODUCT_IMAGE_PLACEHOLDER;
+
+  const upgradedUrl = trimmedUrl.startsWith("http://")
+    ? `https://${trimmedUrl.slice("http://".length)}`
+    : trimmedUrl;
+
+  const isLocalhostUrl = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(upgradedUrl)
+    || /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(upgradedUrl);
+
+  if (isLocalhostUrl) return PRODUCT_IMAGE_PLACEHOLDER;
+
+  if (/^https?:\/\//i.test(upgradedUrl)) return upgradedUrl;
+
+  const baseUrl = (import.meta.env.BASE_URL || "/").replace(/\/$/, "");
+  const normalizedPath = upgradedUrl.startsWith("/") ? upgradedUrl : `/${upgradedUrl}`;
+  return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+}
 
 function formatPeso(amount) {
   return `\u20B1${amount.toFixed(2)}`;
@@ -39,6 +62,14 @@ function saveHeldCarts(carts) {
 
 function ProductCard({ product, onAdd }) {
   const outOfStock = product.stock <= 0;
+  const imageSrc = product.image || PRODUCT_IMAGE_PLACEHOLDER;
+
+  const handleImageError = (event) => {
+    if (event.currentTarget.src !== PRODUCT_IMAGE_PLACEHOLDER) {
+      event.currentTarget.src = PRODUCT_IMAGE_PLACEHOLDER;
+    }
+  };
+
   return (
     <button
       type="button"
@@ -49,11 +80,12 @@ function ProductCard({ product, onAdd }) {
     >
       <span className="product-category">{product.category}</span>
       <div className="product-image">
-        {product.image ? (
-          <img src={product.image} alt={product.name} className="product-image-img" />
-        ) : (
-          <ImageOff size={28} strokeWidth={1.5} />
-        )}
+        <img
+          src={imageSrc}
+          alt={product.name}
+          className="product-image-img"
+          onError={handleImageError}
+        />
       </div>
       <p className="product-name">{product.name}</p>
       <p className="product-stock">{outOfStock ? "Out of stock" : `Stock: ${product.stock}`}</p>
@@ -189,7 +221,7 @@ export default function PosTerminal() {
           name: p.name,
           stock: Number(p.stock),
           price: Number(p.unitPrice),
-          image: p.imageUrl ? `${import.meta.env.BASE_URL}${p.imageUrl}` : null,
+          image: normalizeProductImageUrl(p.imageUrl),
         }));
         setProducts(mapped);
         setLoadError("");
@@ -354,7 +386,7 @@ export default function PosTerminal() {
             name: p.name,
             stock: Number(p.stock),
             price: Number(p.unitPrice),
-            image: p.imageUrl ? `${import.meta.env.BASE_URL}${p.imageUrl}` : null,
+            image: normalizeProductImageUrl(p.imageUrl),
           }));
           setProducts(mapped);
         })
