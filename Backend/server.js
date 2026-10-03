@@ -27,7 +27,43 @@ const settingsRoutes = require("./routes/settingsRoutes");
 
 const app = express();
 
-app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
+// Configured allowed origins list
+const allowedOrigins = [
+  "https://gastrack-frontend-v2.vercel.app",
+  "https://gastrack-frontend-v2-qz1937smy-gas-track.vercel.app"
+];
+
+// Add process.env.CORS_ORIGIN if set and not already included
+if (process.env.CORS_ORIGIN) {
+  process.env.CORS_ORIGIN.split(",").forEach((origin) => {
+    const trimmed = origin.trim();
+    if (trimmed && !allowedOrigins.includes(trimmed)) {
+      allowedOrigins.push(trimmed);
+    }
+  });
+}
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow non-browser requests (e.g. mobile apps, curl, Postman)
+      if (!origin) return callback(null, true);
+
+      // Check against allowed list, any .vercel.app domain, or localhost
+      if (
+        allowedOrigins.includes(origin) ||
+        /\.vercel\.app$/.test(origin) ||
+        origin.includes("localhost")
+      ) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
+
 app.use(express.json({ limit: "5mb" }));
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
