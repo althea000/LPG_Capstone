@@ -3,13 +3,6 @@ import { Search, ChevronDown, ShoppingCart, Wallet, Minus, Plus, X, PauseCircle 
 import PaymentModal from "./PaymentModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
-import productFallbackImage from "./assets/gasul/gasul-11kg.png";
-import gasul27Image from "./assets/gasul/gasul-2.7kg.png";
-import gasul7Image from "./assets/gasul/gasul-7kg.png";
-import gasul11Image from "./assets/gasul/gasul-11kg.png";
-import gasul11EliteImage from "./assets/gasul/gasul-elite11kg.png";
-import gasul22Image from "./assets/gasul/gasul-22kg.png";
-import gasul50Image from "./assets/gasul/gasul-50kg.png";
 import "./PosTerminal.css";
 
 const discountOptions = [
@@ -22,81 +15,15 @@ const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
 const POS_WAREHOUSE_ID = "WH-001";
-const PRODUCT_IMAGE_PLACEHOLDER = "https://via.placeholder.com/300x200?text=LPG+Cylinder";
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim();
-const LOCAL_PRODUCT_IMAGES = {
-  "src/assets/gasul/gasul-2.7kg.png": gasul27Image,
-  "src/assets/gasul/gasul-7kg.png": gasul7Image,
-  "src/assets/gasul/gasul-11kg.png": gasul11Image,
-  "src/assets/gasul/gasul-elite11kg.png": gasul11EliteImage,
-  "src/assets/gasul/gasul-22kg.png": gasul22Image,
-  "src/assets/gasul/gasul-50kg.png": gasul50Image,
-  "gasul-2.7kg.png": gasul27Image,
-  "gasul-7kg.png": gasul7Image,
-  "gasul-11kg.png": gasul11Image,
-  "gasul-elite11kg.png": gasul11EliteImage,
-  "gasul-22kg.png": gasul22Image,
-  "gasul-50kg.png": gasul50Image,
+const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
+
+const getProductImage = (product) => {
+  const url = typeof product?.ImageURL === "string" ? product.ImageURL.trim() : "";
+  if (!url) return PRODUCT_IMAGE_FALLBACK;
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  const baseUrl = import.meta.env.VITE_API_BASE_URL || "https://gastrack-backend-wtrs.onrender.com";
+  return `${baseUrl.replace(/\/$/, "")}/${url.replace(/^\//, "")}`;
 };
-
-function resolveBundledProductImage(imageUrl) {
-  if (typeof imageUrl !== "string") return "";
-
-  const normalized = imageUrl.trim().replace(/\\/g, "/").replace(/^\.?\//, "").toLowerCase();
-  if (!normalized) return "";
-
-  if (LOCAL_PRODUCT_IMAGES[normalized]) return LOCAL_PRODUCT_IMAGES[normalized];
-
-  const fileName = normalized.split("/").pop();
-  if (fileName && LOCAL_PRODUCT_IMAGES[fileName]) return LOCAL_PRODUCT_IMAGES[fileName];
-
-  return "";
-}
-
-function getApiOrigin() {
-  if (!API_BASE_URL) return "";
-  try {
-    return new URL(API_BASE_URL).origin;
-  } catch {
-    return "";
-  }
-}
-
-function isLocalHostUrl(url) {
-  return /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(url)
-    || /^(localhost|127\.0\.0\.1|0\.0\.0\.0)(:\d+)?/i.test(url);
-}
-
-function normalizeProductImageUrl(imageUrl) {
-  if (typeof imageUrl !== "string") return PRODUCT_IMAGE_PLACEHOLDER;
-
-  const trimmedUrl = imageUrl.trim();
-  if (!trimmedUrl) return PRODUCT_IMAGE_PLACEHOLDER;
-
-  const bundledImageUrl = resolveBundledProductImage(trimmedUrl);
-  if (bundledImageUrl) return bundledImageUrl;
-
-  const protocolUpgradedUrl = trimmedUrl.startsWith("http://")
-    ? `https://${trimmedUrl.slice("http://".length)}`
-    : trimmedUrl;
-
-  if (isLocalHostUrl(protocolUpgradedUrl)) return PRODUCT_IMAGE_PLACEHOLDER;
-
-  if (/^https?:\/\//i.test(protocolUpgradedUrl)) return protocolUpgradedUrl;
-
-  if (protocolUpgradedUrl.startsWith("//")) return `https:${protocolUpgradedUrl}`;
-
-  if (/^\/?src\//i.test(protocolUpgradedUrl)) return PRODUCT_IMAGE_PLACEHOLDER;
-
-  const apiOrigin = getApiOrigin();
-  if (!apiOrigin) return PRODUCT_IMAGE_PLACEHOLDER;
-
-  const normalizedPath = protocolUpgradedUrl.startsWith("/")
-    ? protocolUpgradedUrl
-    : `/${protocolUpgradedUrl}`;
-
-  return `${apiOrigin}${normalizedPath}`;
-}
 
 function formatPeso(amount) {
   return `\u20B1${amount.toFixed(2)}`;
@@ -121,21 +48,6 @@ function saveHeldCarts(carts) {
 
 function ProductCard({ product, onAdd }) {
   const outOfStock = product.stock <= 0;
-  const imageSrc = product.image || PRODUCT_IMAGE_PLACEHOLDER;
-
-  const handleImageError = (event) => {
-    const img = event.currentTarget;
-    if (img.dataset.localFallbackApplied === "1") return;
-
-    const currentSrc = img.currentSrc || img.src || "";
-    if (currentSrc.includes("via.placeholder.com/300x200")) {
-      img.dataset.localFallbackApplied = "1";
-      img.src = productFallbackImage;
-      return;
-    }
-
-    img.src = PRODUCT_IMAGE_PLACEHOLDER;
-  };
 
   return (
     <button
@@ -148,10 +60,13 @@ function ProductCard({ product, onAdd }) {
       <span className="product-category">{product.category}</span>
       <div className="product-image">
         <img
-          src={imageSrc}
-          alt={product.name}
+          src={getProductImage(product)}
+          alt={product.ProductName || product.name}
           className="product-image-img"
-          onError={handleImageError}
+          onError={(e) => {
+            e.target.onerror = null;
+            e.target.src = PRODUCT_IMAGE_FALLBACK;
+          }}
         />
       </div>
       <p className="product-name">{product.name}</p>
@@ -286,9 +201,10 @@ export default function PosTerminal() {
           id: p.productId,
           category: p.category,
           name: p.name,
+            ProductName: p.ProductName ?? p.name,
           stock: Number(p.stock),
           price: Number(p.unitPrice),
-          image: normalizeProductImageUrl(p.imageUrl),
+          ImageURL: p.ImageURL ?? p.imageUrl ?? null,
         }));
         setProducts(mapped);
         setLoadError("");
@@ -451,9 +367,10 @@ export default function PosTerminal() {
             id: p.productId,
             category: p.category,
             name: p.name,
+            ProductName: p.ProductName ?? p.name,
             stock: Number(p.stock),
             price: Number(p.unitPrice),
-            image: normalizeProductImageUrl(p.imageUrl),
+            ImageURL: p.ImageURL ?? p.imageUrl ?? null,
           }));
           setProducts(mapped);
         })
