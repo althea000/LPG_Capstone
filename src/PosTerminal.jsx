@@ -17,12 +17,14 @@ const HELD_CARTS_KEY = "gastrack_held_carts";
 const POS_WAREHOUSE_ID = "WH-001";
 const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
 
-const getProductImage = (product) => {
-  const url = typeof product?.ImageURL === "string" ? product.ImageURL.trim() : "";
-  if (!url) return PRODUCT_IMAGE_FALLBACK;
+const resolveImageUrl = (url) => {
+  if (!url) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
+
   const baseUrl = import.meta.env.VITE_API_BASE_URL || "https://gastrack-backend-wtrs.onrender.com";
-  return `${baseUrl.replace(/\/$/, "")}/${url.replace(/^\//, "")}`;
+  const cleanBase = baseUrl.replace(/\/$/, "");
+  const cleanPath = url.replace(/^\//, "");
+  return `${cleanBase}/${cleanPath}`;
 };
 
 function formatPeso(amount) {
@@ -60,12 +62,12 @@ function ProductCard({ product, onAdd }) {
       <span className="product-category">{product.category}</span>
       <div className="product-image">
         <img
-          src={getProductImage(product)}
+          src={resolveImageUrl(product.ImageURL || product.ImageUrl)}
           alt={product.ProductName || product.name}
           className="product-image-img"
           onError={(e) => {
             e.target.onerror = null;
-            e.target.src = PRODUCT_IMAGE_FALLBACK;
+            e.target.src = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
           }}
         />
       </div>
