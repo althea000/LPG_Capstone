@@ -17,9 +17,21 @@ const HELD_CARTS_KEY = "gastrack_held_carts";
 const POS_WAREHOUSE_ID = "WH-001";
 const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
 
-const resolveImageUrl = (url) => {
+const resolveImageUrl = (product) => {
+  if (!product) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
+  
+  let url = product.ImageURL || product.imageUrl || product.Imageurl || product.imageURL;
   if (!url) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+
+  // Fix doubled Vercel + Render URL if present
+  if (url.includes("https://gastrack-backend-wtrs.onrender.com/")) {
+    const parts = url.split("https://gastrack-backend-wtrs.onrender.com/");
+    return "https://gastrack-backend-wtrs.onrender.com/" + parts[parts.length - 1];
+  }
+
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
 
   const baseUrl = import.meta.env.VITE_API_BASE_URL || "https://gastrack-backend-wtrs.onrender.com";
   const cleanBase = baseUrl.replace(/\/$/, "");
@@ -62,7 +74,7 @@ function ProductCard({ product, onAdd }) {
       <span className="product-category">{product.category}</span>
       <div className="product-image">
         <img
-          src={resolveImageUrl(product.ImageURL || product.ImageUrl)}
+          src={resolveImageUrl(product)}
           alt={product.ProductName || product.name}
           className="product-image-img"
           onError={(e) => {

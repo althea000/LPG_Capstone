@@ -39,3 +39,5 @@ ML/*.pkl
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*
