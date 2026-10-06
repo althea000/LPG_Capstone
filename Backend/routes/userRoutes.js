@@ -42,6 +42,53 @@ function parseModules(raw) {
   }
 }
 
+function modulesByRole(roleName) {
+  const role = String(roleName || "").trim().toLowerCase();
+
+  const allow = (...keys) => {
+    const base = {
+      dashboard: false,
+      pos: false,
+      inventory: false,
+      products: false,
+      sales: false,
+      restocking: false,
+      orders: false,
+      suppliers: false,
+      report: false,
+      data: false,
+      users: false,
+      settings: false,
+    };
+    for (const key of keys) base[key] = true;
+    return base;
+  };
+
+  if (role === "administrator" || role === "admin") {
+    return allow("dashboard", "pos", "inventory", "products", "sales", "restocking", "orders", "suppliers", "report", "data", "users", "settings");
+  }
+  if (role === "operations supervisor") {
+    return allow("dashboard", "inventory", "products", "sales", "restocking", "suppliers", "report", "data", "users", "settings");
+  }
+  if (role === "assistant operations supervisor") {
+    return allow("dashboard", "inventory", "products", "sales", "restocking", "suppliers", "report", "data");
+  }
+  if (role === "store supervisor") {
+    return allow("dashboard", "pos", "inventory", "products", "sales", "orders", "report", "data");
+  }
+  if (role === "assistant store supervisor") {
+    return allow("dashboard", "pos", "inventory", "products", "sales", "orders");
+  }
+  if (role === "stockman" || role === "head maintenance") {
+    return allow("inventory");
+  }
+  if (role === "drivers" || role === "helpers") {
+    return allow("orders");
+  }
+
+  return allow();
+}
+
 // GET /users?search=&role=&status=&branch=
 router.get(
   "/",
@@ -144,10 +191,13 @@ router.post(
     const lastName = rest.join(" ") || firstName;
     const passwordHash = await bcrypt.hash(password, 10);
 
-    const [result] = await pool.query(
-      `INSERT INTO User (CompanyID, RoleID, WarehouseID, FirstName, LastName, Email, PasswordHash, Status, ModuleAccess)
-       VALUES (:companyId, :roleId, :warehouseId, :firstName, :lastName, :email, :passwordHash, :status, :modules)`,
+    const userId = await nextId(pool, "User", "UserID", "U");
+
+    await pool.query(
+      `INSERT INTO User (UserID, CompanyID, RoleID, WarehouseID, FirstName, LastName, Email, PasswordHash, Status, ModuleAccess)
+       VALUES (:userId, :companyId, :roleId, :warehouseId, :firstName, :lastName, :email, :passwordHash, :status, :modules)`,
       {
+        userId,
         companyId: req.user.companyId,
         roleId: roleRows[0].RoleID,
         warehouseId,
@@ -156,7 +206,7 @@ router.post(
         email: usernameEmail,
         passwordHash,
         status: status || "Active",
-        modules: JSON.stringify(modules || { dashboard: true }),
+        modules: JSON.stringify(modulesByRole(role)),
       }
     );
 
@@ -164,10 +214,10 @@ router.post(
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
        VALUES (:userActivityId, :userId, 'Create', 'Users', :recordId, 'Created a new user')`,
-      { userActivityId, userId: req.user.userId, recordId: result.insertId }
+      { userActivityId, userId: req.user.userId, recordId: userId }
     );
 
-    res.status(201).json({ id: result.insertId });
+    res.status(201).json({ id: userId });
   })
 );
 
@@ -207,9 +257,10 @@ router.put(
         sets.push(`WarehouseID = NULL`);
       }
     }
-    if (modules !== undefined) {
+    if (role || modules !== undefined) {
+      const effectiveRole = role || (await pool.query(`SELECT RoleName FROM Role WHERE RoleID = (SELECT RoleID FROM User WHERE UserID = :id)`, { id: req.params.id }))[0][0]?.RoleName;
       sets.push(`ModuleAccess = :modules`);
-      params.modules = JSON.stringify(modules);
+      params.modules = JSON.stringify(modulesByRole(effectiveRole));
     }
     if (password) {
       sets.push(`PasswordHash = :passwordHash`);
@@ -234,9 +285,9 @@ router.put(
 // DELETE /users/:id — soft delete: users are referenced by Sales, InventoryTransaction, UserActivity, etc.
 router.delete(
   "/:id",
-  authorize("Admin"),
+  authorize("Admin", "Manager"),
   asyncHandler(async (req, res) => {
-    if (Number(req.params.id) === req.user.userId) {
+    if (String(req.params.id) === String(req.user.userId)) {
       throw new ApiError(400, "You cannot deactivate your own account.");
     }
     const [result] = await pool.query(`UPDATE User SET Status = 'Inactive' WHERE UserID = :id`, {

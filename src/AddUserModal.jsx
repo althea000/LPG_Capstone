@@ -1,15 +1,22 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import "./AddUserModal.css";
 import { apiRequest } from "./api";
+import { buildModulesByRole } from "./rbac";
 
 const moduleOptions = [
   { key: "dashboard", label: "Dashboard" },
   { key: "pos", label: "POS Terminal" },
   { key: "inventory", label: "Inventory" },
-  { key: "products", label: "Product Module" },
-  { key: "suppliers", label: "Supplier Module" },
+  { key: "products", label: "Products" },
+  { key: "sales", label: "Sales" },
+  { key: "restocking", label: "Restocking" },
+  { key: "orders", label: "Order and Delivery" },
+  { key: "suppliers", label: "Suppliers" },
+  { key: "report", label: "Report and Compliance" },
   { key: "data", label: "Data" },
+  { key: "users", label: "Users" },
+  { key: "settings", label: "Settings" },
 ];
 
 const statusOptions = ["Active", "Inactive"];
@@ -22,7 +29,7 @@ const emptyForm = {
   role: "",
   branch: "",
   status: "Active",
-  modules: { dashboard: true },
+  modules: {},
 };
 
 export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }) {
@@ -36,10 +43,11 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
 
   useEffect(() => {
     if (!isOpen) return;
+    setError("");
     Promise.all([apiRequest("/roles"), apiRequest("/warehouses")])
       .then(([roleData, warehouseData]) => {
-        setRoles(roleData);
-        setBranches(warehouseData);
+        setRoles(Array.isArray(roleData) ? roleData : []);
+        setBranches(Array.isArray(warehouseData) ? warehouseData : []);
       })
       .catch((err) => setError(err.message || "Failed to load roles/branches."));
   }, [isOpen]);
@@ -62,17 +70,15 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
     setError("");
   }, [selectedUser, isOpen]);
 
+  useEffect(() => {
+    if (!form.role) return;
+    setForm((prev) => ({ ...prev, modules: buildModulesByRole(form.role) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.role]);
+
   if (!isOpen) return null;
 
   const updateField = (field, value) => setForm((prev) => ({ ...prev, [field]: value }));
-
-  const toggleModule = (key) => {
-    setForm((prev) => ({
-      ...prev,
-      modules: { ...prev.modules, [key]: !prev.modules[key] },
-    }));
-  };
-
   const resetAndClose = () => {
     setForm(emptyForm);
     setError("");
@@ -99,6 +105,11 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
       return;
     }
 
+    if (!roles.length || !branches.length) {
+      setError("Roles/branches are still loading. Please wait and try again.");
+      return;
+    }
+
     setError("");
     setIsSubmitting(true);
     try {
@@ -108,7 +119,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
           role: form.role,
           branch: form.branch,
           status: form.status,
-          modules: form.modules,
+          modules: buildModulesByRole(form.role),
         };
         if (form.password) payload.password = form.password;
         await apiRequest(`/users/${selectedUser.id}`, {
@@ -125,7 +136,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             role: form.role,
             branch: form.branch,
             status: form.status,
-            modules: form.modules,
+            modules: buildModulesByRole(form.role),
           }),
         });
       }
@@ -174,7 +185,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             <label className="field-label">{isEditing ? "New Password (optional)" : "Password"}</label>
             <input
               type="password"
-              placeholder="••••••••••••"
+              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
               className="field-input"
               value={form.password}
               onChange={(e) => updateField("password", e.target.value)}
@@ -187,7 +198,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             <label className="field-label">{isEditing ? "Confirm New Password" : "Confirm Password"}</label>
             <input
               type="password"
-              placeholder="••••••••••••"
+              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
               className="field-input"
               value={form.confirmPassword}
               onChange={(e) => updateField("confirmPassword", e.target.value)}
@@ -197,6 +208,9 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
 
         {/* Role & Assignment */}
         <h3 className="add-user-section">Role &amp; Assignment</h3>
+        {!roles.length || !branches.length ? (
+          <p style={{ color: "#6b7280", marginTop: 0 }}>Loading roles and branchesÃ¢â‚¬Â¦</p>
+        ) : null}
         <div className="add-user-grid three-col">
           <div className="field">
             <label className="field-label">Role</label>
@@ -255,7 +269,8 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
               <input
                 type="checkbox"
                 checked={!!form.modules[key]}
-                onChange={() => toggleModule(key)}
+                readOnly
+                disabled
               />
               <span className="module-box" />
               <span>{label}</span>
@@ -269,10 +284,11 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             Cancel
           </button>
           <button type="button" className="add-user-btn save" onClick={handleSave} disabled={isSubmitting}>
-            {isSubmitting ? "Saving…" : isEditing ? "Save Changes" : "Save User"}
+            {isSubmitting ? "Savingâ€¦" : isEditing ? "Save Changes" : "Save User"}
           </button>
         </div>
       </div>
     </div>
   );
 }
+

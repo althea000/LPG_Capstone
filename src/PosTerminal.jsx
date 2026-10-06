@@ -14,7 +14,6 @@ const discountOptions = [
 const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
-const POS_WAREHOUSE_ID = "WH-001";
 const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
 
 const resolveImageUrl = (product) => {
@@ -205,22 +204,24 @@ export default function PosTerminal() {
     saveHeldCarts(heldCarts);
   }, [heldCarts]);
 
+  const mapProducts = (data) =>
+    data.map((p) => ({
+      id: p.productId,
+      category: p.category,
+      name: p.name,
+      ProductName: p.ProductName ?? p.name,
+      stock: Number(p.stock),
+      price: Number(p.unitPrice),
+      ImageURL: p.ImageURL ?? p.imageUrl ?? null,
+    }));
+
   useEffect(() => {
     let cancelled = false;
     setIsLoadingProducts(true);
-    apiRequest(`/products?status=Active&warehouseId=${POS_WAREHOUSE_ID}`)
+    apiRequest(`/products?status=Active`)
       .then((data) => {
         if (cancelled) return;
-        const mapped = data.map((p) => ({
-          id: p.productId,
-          category: p.category,
-          name: p.name,
-            ProductName: p.ProductName ?? p.name,
-          stock: Number(p.stock),
-          price: Number(p.unitPrice),
-          ImageURL: p.ImageURL ?? p.imageUrl ?? null,
-        }));
-        setProducts(mapped);
+        setProducts(mapProducts(data));
         setLoadError("");
       })
       .catch((err) => {
@@ -234,10 +235,15 @@ export default function PosTerminal() {
     };
   }, []);
 
-  const categories = useMemo(
-    () => ["All Categories", ...new Set(products.map((p) => p.category))],
-    [products]
-  );
+  const categories = useMemo(() => {
+    const unique = [...new Set(products.map((p) => p.category).filter(Boolean))];
+    const preferredOrder = ["Cylinder", "Accessories", "Gasul LPG"];
+    const ordered = [
+      ...preferredOrder.filter((cat) => unique.includes(cat)),
+      ...unique.filter((cat) => !preferredOrder.includes(cat)).sort((a, b) => a.localeCompare(b)),
+    ];
+    return ["All Categories", ...ordered];
+  }, [products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -375,18 +381,9 @@ export default function PosTerminal() {
       clearCart();
       alert(`Sale ${response.saleNo} completed. Change due: ₱${response.changeDue?.toFixed(2) ?? "0.00"}`);
 
-      apiRequest(`/products?status=Active&warehouseId=${POS_WAREHOUSE_ID}`)
+      apiRequest(`/products?status=Active`)
         .then((data) => {
-          const mapped = data.map((p) => ({
-            id: p.productId,
-            category: p.category,
-            name: p.name,
-            ProductName: p.ProductName ?? p.name,
-            stock: Number(p.stock),
-            price: Number(p.unitPrice),
-            ImageURL: p.ImageURL ?? p.imageUrl ?? null,
-          }));
-          setProducts(mapped);
+          setProducts(mapProducts(data));
         })
         .catch(() => {});
     } catch (err) {

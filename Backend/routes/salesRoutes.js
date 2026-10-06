@@ -35,7 +35,7 @@ async function nextId(conn, table, column, prefix, pad = 3) {
   }
 }
 
-const DEFAULT_WAREHOUSE_ID = "WH-001"; // POS terminal deducts from the main warehouse by default
+const DEFAULT_WAREHOUSE_ID = "WH-001"; // fallback when an explicit warehouse is provided by callers
 
 router.use(authenticate);
 
@@ -159,7 +159,8 @@ router.post(
       const discountAmount = discount || 0;
       const vat = taxEnabled ? (subtotal - discountAmount) * taxRate : 0;
       const totalAmount = subtotal - discountAmount + vat;
-      const wid = warehouseId || DEFAULT_WAREHOUSE_ID;
+      const hasExplicitWarehouse = !!warehouseId;
+      const wid = hasExplicitWarehouse ? warehouseId : DEFAULT_WAREHOUSE_ID;
 
       const orderNo = await nextSequence(pool, "`Order`", "OrderNo", "ORD");
       const orderId = await nextId(conn, "`Order`", "OrderID", "ORD");
@@ -192,32 +193,71 @@ router.post(
           }
         );
 
-        const [invRows] = await conn.query(
-          `SELECT InventoryID, StockOnHand FROM Inventory WHERE WarehouseID = :wid AND ProductID = :pid FOR UPDATE`,
-          { wid, pid: item.productId }
-        );
-        let inv = invRows[0];
-        if (!inv) {
-          const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
-          await conn.query(
-            `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand) VALUES (:inventoryId, :wid, :pid, 0)`,
-            { inventoryId, wid, pid: item.productId }
+        if (hasExplicitWarehouse) {
+          const [invRows] = await conn.query(
+            `SELECT InventoryID, StockOnHand FROM Inventory WHERE WarehouseID = :wid AND ProductID = :pid FOR UPDATE`,
+            { wid, pid: item.productId }
           );
-          inv = { InventoryID: inventoryId, StockOnHand: 0 };
+          let inv = invRows[0];
+          if (!inv) {
+            const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+            await conn.query(
+              `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand) VALUES (:inventoryId, :wid, :pid, 0)`,
+              { inventoryId, wid, pid: item.productId }
+            );
+            inv = { InventoryID: inventoryId, StockOnHand: 0 };
+          }
+          if (inv.StockOnHand < item.qty) {
+            throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
+          }
+          await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`, {
+            qty: item.qty,
+            id: inv.InventoryID,
+          });
+          const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
+          await conn.query(
+            `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
+             VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
+            { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
+          );
+        } else {
+          const [invRows] = await conn.query(
+            `SELECT i.InventoryID, i.StockOnHand
+             FROM Inventory i
+             JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
+             WHERE w.CompanyID = :companyId AND i.ProductID = :pid
+             ORDER BY i.StockOnHand DESC, i.InventoryID
+             FOR UPDATE`,
+            { companyId: req.user.companyId, pid: item.productId }
+          );
+
+          const totalAvailable = invRows.reduce((sum, row) => sum + Number(row.StockOnHand || 0), 0);
+          if (totalAvailable < item.qty) {
+            throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
+          }
+
+          let remaining = item.qty;
+          for (const inv of invRows) {
+            if (remaining <= 0) break;
+            const available = Number(inv.StockOnHand || 0);
+            if (available <= 0) continue;
+
+            const deductQty = Math.min(available, remaining);
+            await conn.query(
+              `UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`,
+              { qty: deductQty, id: inv.InventoryID }
+            );
+
+            const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
+            await conn.query(
+              `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
+               VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
+              { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: deductQty, ref: orderNo }
+            );
+
+            remaining -= deductQty;
+          }
         }
-        if (inv.StockOnHand < item.qty) {
-          throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
-        }
-        await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`, {
-          qty: item.qty,
-          id: inv.InventoryID,
-        });
-        const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
-        await conn.query(
-          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
-           VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
-          { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
-        );
       }
 
       const saleNo = await nextSequence(pool, "Sales", "SaleNo", "SALE");

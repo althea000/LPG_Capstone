@@ -148,13 +148,15 @@
 .users-table-wrap {
   background: #ffffff;
   border-radius: 12px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   border: 1px solid #f0f0f0;
 }
 
 .users-table {
   width: 100%;
+  min-width: 1120px;
   border-collapse: collapse;
   font-size: 0.875rem;
 }
@@ -176,6 +178,17 @@
   border-bottom: 1px solid #f3f4f6;
   color: #374151;
   white-space: nowrap;
+}
+
+.users-table th:nth-child(3),
+.users-table td:nth-child(3) {
+  min-width: 280px;
+}
+
+.users-table th:nth-child(6),
+.users-table td:nth-child(6) {
+  min-width: 120px;
+  text-align: center;
 }
 
 .users-table tbody tr:last-child td {

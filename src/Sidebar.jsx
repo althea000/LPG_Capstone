@@ -25,6 +25,7 @@ import {
 // Import your custom logo image
 import logoImg from "./assets/logo.png";
 import { apiRequest } from "./api";
+import { getAllowedNavIdsByRole } from "./rbac";
 import "./Sidebar.css";
 
 // ---------------------------------------------------------------------------
@@ -161,6 +162,24 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
 
   const current = activeItem ?? internalActive;
 
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const allowedNavIds = useMemo(
+    () => new Set(getAllowedNavIdsByRole(currentUser?.role)),
+    [currentUser?.role]
+  );
+
+  const visibleNavItems = useMemo(() => {
+    if (!allowedNavIds.size) return [];
+    return navItems.filter((item) => allowedNavIds.has(item.id));
+  }, [allowedNavIds]);
+
   const handleClick = (id) => {
     if (onNavigate) {
       onNavigate(id);
@@ -226,8 +245,8 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
   const searchResults = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
     if (!term) return [];
-    return navItems.filter((item) => item.label.toLowerCase().includes(term));
-  }, [searchTerm]);
+    return visibleNavItems.filter((item) => item.label.toLowerCase().includes(term));
+  }, [searchTerm, visibleNavItems]);
 
   const handleSearchChange = (e) => {
     setSearchTerm(e.target.value);
@@ -369,7 +388,7 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
 
       {/* Nav items */}
       <nav className="sidebar-nav">
-        {navItems.map(({ id, label, icon: Icon }) => (
+        {visibleNavItems.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import Login from "./Login";
 import ResetPasswordPage from "./ResetPasswordPage";
 import Sidebar from "./Sidebar";
@@ -19,6 +19,7 @@ import Data from "./Data";
 import OrderAndDelivery from "./OrderAndDelivery";
 import LogoutModal from "./LogoutModal";
 import { apiRequest } from "./api";
+import { getAllowedNavIdsByRole } from "./rbac";
 
 const pages = {
   dashboard: Dashboard,
@@ -76,6 +77,24 @@ export default function App() {
     setActiveItem("dashboard");
   };
 
+  const currentUser = useMemo(() => {
+    try {
+      return JSON.parse(localStorage.getItem("user") || "null");
+    } catch {
+      return null;
+    }
+  }, [isAuthenticated]);
+
+  const allowedNavIds = useMemo(() => getAllowedNavIdsByRole(currentUser?.role), [currentUser?.role]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (!allowedNavIds.length) return;
+    if (!allowedNavIds.includes(activeItem)) {
+      setActiveItem(allowedNavIds[0]);
+    }
+  }, [isAuthenticated, allowedNavIds, activeItem]);
+
   // The password-reset link takes priority over everything else, whether or
   // not the person happens to already be logged in on this browser.
   if (showResetPage) {
@@ -93,12 +112,15 @@ export default function App() {
     return <Login onLogin={handleLogin} onRegisterSuccess={handleRegisterSuccess} />;
   }
 
-  const ActivePage = pages[activeItem] || Dashboard;
+  const resolvedActiveItem = allowedNavIds.includes(activeItem)
+    ? activeItem
+    : (allowedNavIds[0] || "dashboard");
+  const ActivePage = pages[resolvedActiveItem] || Dashboard;
 
   return (
     <div className="app-shell">
       <Sidebar
-        activeItem={activeItem}
+        activeItem={resolvedActiveItem}
         onNavigate={setActiveItem}
         onProfileClick={() => setIsLogoutModalOpen(true)}
       />

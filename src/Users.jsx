@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   Search,
   ChevronDown,
@@ -74,7 +74,7 @@ function ViewUserModal({ user, onClose }) {
           <div><strong>Full Name:</strong> {user.name}</div>
           <div><strong>Email:</strong> {user.email}</div>
           <div><strong>Role:</strong> {user.role}</div>
-          <div><strong>Branch:</strong> {user.branch || "—"}</div>
+          <div><strong>Branch:</strong> {user.branch || "â€”"}</div>
           <div><strong>Status:</strong> {user.status}</div>
           <div><strong>Created:</strong> {new Date(user.createdAt).toLocaleString()}</div>
           <div>
@@ -273,13 +273,13 @@ export default function Users() {
                     <th>Username/Email</th>
                     <th>Role</th>
                     <th>Branch / Warehouse</th>
-                    <th>Status</th>
                     <th>Actions</th>
+                    <th>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {isLoading && (
-                    <tr><td colSpan={7} className="no-results-cell">Loading…</td></tr>
+                    <tr><td colSpan={7} className="no-results-cell">Loading...</td></tr>
                   )}
                   {!isLoading && paginatedUsers.map((user) => (
                     <tr key={user.id}>
@@ -288,9 +288,6 @@ export default function Users() {
                       <td>{user.email}</td>
                       <td>{user.role}</td>
                       <td>{user.branch || "—"}</td>
-                      <td>
-                        <StatusPill status={user.status} />
-                      </td>
                       <td>
                         <div className="action-icons">
                           <button
@@ -319,6 +316,7 @@ export default function Users() {
                           </button>
                         </div>
                       </td>
+                      <td><StatusPill status={user.status} /></td>
                     </tr>
                   ))}
                   {!isLoading && paginatedUsers.length === 0 && (
@@ -400,7 +398,7 @@ export default function Users() {
                       <td>{entry.name}</td>
                       <td>{entry.role}</td>
                       <td>{entry.module}</td>
-                      <td>{entry.action}{entry.description ? ` — ${entry.description}` : ""}</td>
+                      <td>{entry.action}{entry.description ? ` â€” ${entry.description}` : ""}</td>
                       <td>{new Date(entry.datetime).toLocaleString()}</td>
                     </tr>
                   ))}
@@ -467,3 +465,6 @@ export default function Users() {
     </div>
   );
 }
+
+
+

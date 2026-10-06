@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import {
   LineChart,
   Line,
@@ -13,9 +13,59 @@ import { apiRequest } from "./api";
 import "./Dashboard.css";
 
 function formatPeso(amount) {
-  return `₱ ${Number(amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return Number(amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function parseTimestamp(value) {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+
+  if (typeof value === "string") {
+    let normalized = value.includes("T") ? value : value.replace(" ", "T");
+
+    const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
+    const hasTimePart = normalized.includes("T");
+
+    if (hasTimePart && !hasExplicitTimezone) {
+      normalized = `${normalized}Z`;
+    }
+
+    const parsed = new Date(normalized);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const fallback = new Date(value);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
+function formatTimestamp(value) {
+  const date = parseTimestamp(value);
+  return date ? date.toLocaleString() : "—";
+}
+
+function formatRelativeTime(value, nowTs = Date.now()) {
+  const date = parseTimestamp(value);
+  if (!date) return "";
+
+  const diffMs = Math.max(0, nowTs - date.getTime());
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return "just now";
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function formatTimestampWithRelative(value, nowTs = Date.now()) {
+  const absolute = formatTimestamp(value);
+  const relative = formatRelativeTime(value, nowTs);
+  return relative ? `${absolute} (${relative})` : absolute;
+}
 // ---------------------------------------------------------------------------
 // Small building blocks
 // ---------------------------------------------------------------------------
@@ -129,7 +179,7 @@ function LowStockModal({ isOpen, onClose }) {
   if (!isOpen) return null;
   return (
     <ModalShell title="Products Needing Attention" onClose={onClose}>
-      {isLoading && <p>Loading…</p>}
+      {isLoading && <p>Loadingâ€¦</p>}
       {!isLoading && rows.length === 0 && <p>No products are below their reorder level.</p>}
       {!isLoading && rows.map((r) => (
         <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
@@ -160,7 +210,7 @@ function TopProductsModal({ isOpen, onClose }) {
   if (!isOpen) return null;
   return (
     <ModalShell title="Best Sellers (Last 30 Days)" onClose={onClose}>
-      {isLoading && <p>Loading…</p>}
+      {isLoading && <p>Loadingâ€¦</p>}
       {!isLoading && rows.length === 0 && <p>No sales recorded in the last 30 days.</p>}
       {!isLoading && rows.map((r, i) => (
         <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
@@ -175,7 +225,7 @@ function TopProductsModal({ isOpen, onClose }) {
   );
 }
 
-function ActivityLogModal({ isOpen, onClose }) {
+function ActivityLogModal({ isOpen, onClose, nowTs }) {
   const [rows, setRows] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -191,15 +241,15 @@ function ActivityLogModal({ isOpen, onClose }) {
   if (!isOpen) return null;
   return (
     <ModalShell title="Activity Log" onClose={onClose}>
-      {isLoading && <p>Loading…</p>}
+      {isLoading && <p>Loadingâ€¦</p>}
       {!isLoading && rows.length === 0 && <p>No activity recorded yet.</p>}
       {!isLoading && rows.map((r) => (
         <div key={r.id} style={{ padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
           <p style={{ margin: 0, fontSize: "0.85rem" }}>
-            <strong>{r.user}</strong> — {r.action} in {r.module}
+            <strong>{r.user}</strong> â€” {r.action} in {r.module}
             {r.description ? `: ${r.description}` : ""}
           </p>
-          <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>{new Date(r.date).toLocaleString()}</p>
+          <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>{formatTimestampWithRelative(r.date, nowTs)}</p>
         </div>
       ))}
     </ModalShell>
@@ -220,6 +270,7 @@ export default function Dashboard() {
   const [showLowStock, setShowLowStock] = useState(false);
   const [showTopProducts, setShowTopProducts] = useState(false);
   const [showActivityLog, setShowActivityLog] = useState(false);
+  const [nowTs, setNowTs] = useState(() => Date.now());
 
   const load = () => {
     setIsLoading(true);
@@ -234,6 +285,20 @@ export default function Dashboard() {
 
   useEffect(() => {
     load();
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      load();
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const clockTimer = window.setInterval(() => {
+      setNowTs(Date.now());
+    }, 5000);
+    return () => window.clearInterval(clockTimer);
   }, []);
 
   const showToast = (msg) => {
@@ -258,7 +323,7 @@ export default function Dashboard() {
       <div className="dashboard">
         <div className="dashboard-inner">
           <h1 className="dashboard-title">Dashboard</h1>
-          <p>Loading…</p>
+          <p>Loadingâ€¦</p>
         </div>
       </div>
     );
@@ -369,7 +434,7 @@ export default function Dashboard() {
             {summary.activityLog.map((entry) => (
               <div key={entry.id} className="activity-row">
                 <span className="activity-text">{entry.text}</span>
-                <span className="activity-date">{new Date(entry.date).toLocaleString()}</span>
+                <span className="activity-date">{formatTimestampWithRelative(entry.date, nowTs)}</span>
               </div>
             ))}
           </div>
@@ -378,7 +443,7 @@ export default function Dashboard() {
 
       <LowStockModal isOpen={showLowStock} onClose={() => setShowLowStock(false)} />
       <TopProductsModal isOpen={showTopProducts} onClose={() => setShowTopProducts(false)} />
-      <ActivityLogModal isOpen={showActivityLog} onClose={() => setShowActivityLog(false)} />
+      <ActivityLogModal isOpen={showActivityLog} onClose={() => setShowActivityLog(false)} nowTs={nowTs} />
 
       {toast && (
         <div style={{
@@ -392,3 +457,12 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
