@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   LayoutGrid,
   ShoppingCart,
@@ -103,7 +103,7 @@ function NotificationModal({ isOpen, onClose, isLoading, error, overdue, dueSoon
                       <AlertTriangle size={16} className="notif-item-icon" />
                       <div className="notif-item-body">
                         <p className="notif-item-title">{r.name}</p>
-                        <p className="notif-item-sub">{r.period} · {relativeLabel(r.dueDate)}</p>
+                        <p className="notif-item-sub">{r.period} Â· {relativeLabel(r.dueDate)}</p>
                       </div>
                     </button>
                   ))}
@@ -118,7 +118,7 @@ function NotificationModal({ isOpen, onClose, isLoading, error, overdue, dueSoon
                       <CalendarClock size={16} className="notif-item-icon" />
                       <div className="notif-item-body">
                         <p className="notif-item-title">{r.name}</p>
-                        <p className="notif-item-sub">{r.period} · {relativeLabel(r.dueDate)}</p>
+                        <p className="notif-item-sub">{r.period} Â· {relativeLabel(r.dueDate)}</p>
                       </div>
                     </button>
                   ))}
@@ -414,3 +414,4 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
     </aside>
   );
 }
+

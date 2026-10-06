@@ -1,4 +1,4 @@
-const router = require("express").Router();
+﻿const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -37,9 +37,64 @@ async function nextId(conn, table, column, prefix, pad = 3) {
 router.use(authenticate);
 
 function statusFor(stockOnHand, reorderLevel) {
-  if (stockOnHand <= 0) return "Critical";
-  if (stockOnHand <= reorderLevel) return "Low Stock";
+  const currentStock = Number(stockOnHand || 0);
+  const threshold = Number(reorderLevel || 0);
+
+  if (currentStock === 0) return "Out of Stock";
+  if (currentStock <= threshold) return "Critical";
+  if (currentStock <= threshold * 1.5) return "Low Stock";
   return "Normal";
+}
+
+const CORE_WAREHOUSE_NAMES = ["Pasig Warehouse", "San Juan Warehouse"];
+
+async function ensureCoreWarehousesContainAllProducts(conn, companyId) {
+  if (!companyId) return;
+
+  const [warehouses] = await conn.query(
+    `SELECT WarehouseID AS warehouseId, WarehouseName AS warehouseName
+     FROM Warehouse
+     WHERE CompanyID = :companyId AND WarehouseName IN (:nameA, :nameB)`,
+    { companyId, nameA: CORE_WAREHOUSE_NAMES[0], nameB: CORE_WAREHOUSE_NAMES[1] }
+  );
+  if (warehouses.length === 0) return;
+
+  const [products] = await conn.query(
+    `SELECT ProductID AS productId
+     FROM Product
+     WHERE Status = 'Active'`
+  );
+  if (products.length === 0) return;
+
+  const [existingRows] = await conn.query(
+    `SELECT WarehouseID AS warehouseId, ProductID AS productId
+     FROM Inventory
+     WHERE WarehouseID IN (:wid1, :wid2)`,
+    {
+      wid1: warehouses[0]?.warehouseId || "",
+      wid2: warehouses[1]?.warehouseId || warehouses[0]?.warehouseId || "",
+    }
+  );
+  const existingKeys = new Set(existingRows.map((row) => `${row.warehouseId}|${row.productId}`));
+
+  for (const warehouse of warehouses) {
+    for (const product of products) {
+      const key = `${warehouse.warehouseId}|${product.productId}`;
+      if (existingKeys.has(key)) continue;
+
+      const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+      try {
+        await conn.query(
+          `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand)
+           VALUES (:inventoryId, :warehouseId, :productId, 0)`,
+          { inventoryId, warehouseId: warehouse.warehouseId, productId: product.productId }
+        );
+        existingKeys.add(key);
+      } catch (err) {
+        if (err && err.code !== "ER_DUP_ENTRY") throw err;
+      }
+    }
+  }
 }
 
 // GET /inventory  -> powers Inventory.jsx "Inventory" tab
@@ -47,6 +102,13 @@ router.get(
   "/",
   asyncHandler(async (req, res) => {
     const { warehouseId, status, search } = req.query;
+
+    const conn = await pool.getConnection();
+    try {
+      await ensureCoreWarehousesContainAllProducts(conn, req.user.companyId);
+    } finally {
+      conn.release();
+    }
     let sql = `
       SELECT i.InventoryID AS inventoryId, i.ProductID AS productId, p.ProductName AS productName,
              i.WarehouseID AS warehouseId, w.WarehouseName AS warehouse,
@@ -196,6 +258,187 @@ router.post(
   })
 );
 
+// POST /inventory/transfer
+router.post(
+  "/transfer",
+  asyncHandler(async (req, res) => {
+    const { fromWarehouseId, toWarehouseId, status, remarks, items } = req.body;
+
+    if (!fromWarehouseId || !toWarehouseId) {
+      throw new ApiError(400, "fromWarehouseId and toWarehouseId are required.");
+    }
+    if (fromWarehouseId === toWarehouseId) {
+      throw new ApiError(400, "Source and destination warehouses must be different.");
+    }
+    if (!Array.isArray(items) || !items.length) {
+      throw new ApiError(400, "At least one transfer item is required.");
+    }
+
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
+
+      const [warehouseRows] = await conn.query(
+        `SELECT WarehouseID AS warehouseId, WarehouseName AS warehouseName
+         FROM Warehouse
+         WHERE CompanyID = :companyId AND WarehouseID IN (:fromWarehouseId, :toWarehouseId)`,
+        { companyId: req.user.companyId, fromWarehouseId, toWarehouseId }
+      );
+      if (warehouseRows.length !== 2) {
+        throw new ApiError(400, "Invalid warehouse selection.");
+      }
+
+      const fromWarehouse = warehouseRows.find((w) => w.warehouseId === fromWarehouseId);
+      const toWarehouse = warehouseRows.find((w) => w.warehouseId === toWarehouseId);
+
+      const transferId = await nextId(conn, "Transfer", "TransferID", "TF");
+      await conn.query(
+        `INSERT INTO Transfer (TransferID, FromWarehouseID, ToWarehouseID, UserID, Status, Remarks)
+         VALUES (:transferId, :fromWarehouseId, :toWarehouseId, :userId, :status, :remarks)`,
+        {
+          transferId,
+          fromWarehouseId,
+          toWarehouseId,
+          userId: req.user.userId,
+          status: status || "Completed",
+          remarks: remarks || null,
+        }
+      );
+
+      for (const rawItem of items) {
+        const productId = String(rawItem.productId || "").trim();
+        const quantity = Number(rawItem.quantity);
+
+        if (!productId || !Number.isFinite(quantity) || quantity <= 0) {
+          throw new ApiError(400, "Each transfer item requires a valid productId and quantity.");
+        }
+
+        const fromInv = await getOrCreateInventory(conn, fromWarehouseId, productId);
+        if (Number(fromInv.StockOnHand) < quantity) {
+          throw new ApiError(400, `Insufficient stock for product ${productId} in source warehouse.`);
+        }
+
+        const toInv = await getOrCreateInventory(conn, toWarehouseId, productId);
+
+        await conn.query(
+          `UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :inventoryId`,
+          { qty: quantity, inventoryId: fromInv.InventoryID }
+        );
+        await conn.query(
+          `UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :inventoryId`,
+          { qty: quantity, inventoryId: toInv.InventoryID }
+        );
+
+        const transferDetailId = await nextId(conn, "TransferDetail", "TransferDetailID", "TD");
+        await conn.query(
+          `INSERT INTO TransferDetail (TransferDetailID, TransferID, ProductID, Quantity)
+           VALUES (:transferDetailId, :transferId, :productId, :quantity)`,
+          { transferDetailId, transferId, productId, quantity }
+        );
+
+        const outTxId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
+        await conn.query(
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
+           VALUES (:transactionId, :inventoryId, :userId, 'Stock Out', :quantity, 'Transfer', :referenceNo, :remarks)`,
+          {
+            transactionId: outTxId,
+            inventoryId: fromInv.InventoryID,
+            userId: req.user.userId,
+            quantity,
+            referenceNo: transferId,
+            remarks: `Transfer to ${toWarehouse?.warehouseName || toWarehouseId}`,
+          }
+        );
+
+        const inTxId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
+        await conn.query(
+          `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
+           VALUES (:transactionId, :inventoryId, :userId, 'Stock In', :quantity, 'Transfer', :referenceNo, :remarks)`,
+          {
+            transactionId: inTxId,
+            inventoryId: toInv.InventoryID,
+            userId: req.user.userId,
+            quantity,
+            referenceNo: transferId,
+            remarks: `Transfer from ${fromWarehouse?.warehouseName || fromWarehouseId}`,
+          }
+        );
+      }
+
+      await conn.commit();
+      res.status(201).json({ message: "Stock transfer recorded.", transferId });
+    } catch (err) {
+      await conn.rollback();
+      throw err;
+    } finally {
+      conn.release();
+    }
+  })
+);
+
+// GET /inventory/transfers
+router.get(
+  "/transfers",
+  asyncHandler(async (req, res) => {
+    const [rows] = await pool.query(
+      `SELECT t.TransferID AS transferId,
+              t.FromWarehouseID AS fromWarehouseId,
+              fw.WarehouseName AS fromWarehouse,
+              t.ToWarehouseID AS toWarehouseId,
+              tw.WarehouseName AS toWarehouse,
+              t.UserID AS userId,
+              CONCAT(u.FirstName, ' ', u.LastName) AS user,
+              t.TransferDate AS transferDate,
+              t.Status AS status,
+              t.Remarks AS remarks,
+              td.TransferDetailID AS transferDetailId,
+              td.ProductID AS productId,
+              p.ProductName AS productName,
+              td.Quantity AS quantity
+       FROM Transfer t
+       JOIN Warehouse fw ON fw.WarehouseID = t.FromWarehouseID
+       JOIN Warehouse tw ON tw.WarehouseID = t.ToWarehouseID
+       JOIN User u ON u.UserID = t.UserID
+       JOIN TransferDetail td ON td.TransferID = t.TransferID
+       JOIN Product p ON p.ProductID = td.ProductID
+       WHERE fw.CompanyID = :companyId OR tw.CompanyID = :companyId
+       ORDER BY t.TransferDate DESC, td.TransferDetailID ASC`,
+      { companyId: req.user.companyId }
+    );
+
+    const grouped = [];
+    const map = new Map();
+
+    for (const row of rows) {
+      if (!map.has(row.transferId)) {
+        const transfer = {
+          transferId: row.transferId,
+          fromWarehouseId: row.fromWarehouseId,
+          fromWarehouse: row.fromWarehouse,
+          toWarehouseId: row.toWarehouseId,
+          toWarehouse: row.toWarehouse,
+          userId: row.userId,
+          user: row.user,
+          transferDate: row.transferDate,
+          status: row.status,
+          remarks: row.remarks,
+          items: [],
+        };
+        map.set(row.transferId, transfer);
+        grouped.push(transfer);
+      }
+
+      map.get(row.transferId).items.push({
+        transferDetailId: row.transferDetailId,
+        productId: row.productId,
+        productName: row.productName,
+        quantity: Number(row.quantity),
+      });
+    }
+
+    res.json(grouped);
+  })
+);
 // POST /inventory/adjust { warehouseId, items:[{productId, newQuantity}] }
 router.post(
   "/adjust",
@@ -499,3 +742,9 @@ router.delete(
 );
 
 module.exports = router;
+
+
+
+
+
+

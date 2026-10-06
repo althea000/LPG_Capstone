@@ -1,4 +1,4 @@
-const router = require("express").Router();
+﻿const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -38,6 +38,38 @@ async function nextProductId(conn, maxAttempts = 20) {
     if (!rows[0]) return candidate;
   }
   throw new ApiError(500, "Could not generate a unique Product ID. Please try again.");
+}
+
+const CORE_WAREHOUSE_NAMES = ["Pasig Warehouse", "San Juan Warehouse"];
+
+async function seedCoreWarehouseInventoryForProduct(conn, productId, companyId) {
+  if (!companyId) return;
+
+  const [warehouses] = await conn.query(
+    `SELECT WarehouseID AS warehouseId
+     FROM Warehouse
+     WHERE CompanyID = :companyId AND WarehouseName IN (:nameA, :nameB)`,
+    { companyId, nameA: CORE_WAREHOUSE_NAMES[0], nameB: CORE_WAREHOUSE_NAMES[1] }
+  );
+
+  for (const warehouse of warehouses) {
+    const [existingRows] = await conn.query(
+      `SELECT InventoryID FROM Inventory WHERE WarehouseID = :warehouseId AND ProductID = :productId LIMIT 1`,
+      { warehouseId: warehouse.warehouseId, productId }
+    );
+    if (existingRows[0]) continue;
+
+    const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
+    try {
+      await conn.query(
+        `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand)
+         VALUES (:inventoryId, :warehouseId, :productId, 0)`,
+        { inventoryId, warehouseId: warehouse.warehouseId, productId }
+      );
+    } catch (err) {
+      if (!err || err.code !== "ER_DUP_ENTRY") throw err;
+    }
+  }
 }
 
 router.use(authenticate);
@@ -134,6 +166,8 @@ router.post(
       }
     );
 
+    await seedCoreWarehouseInventoryForProduct(pool, productId, req.user.companyId);
+
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
@@ -210,3 +244,5 @@ router.delete(
 );
 
 module.exports = router;
+
+

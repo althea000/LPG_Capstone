@@ -1,4 +1,4 @@
-// Calls the Python ML microservice (ML/serve.py) for restock confidence
+﻿// Calls the Python ML microservice (ML/serve.py) for restock confidence
 // scoring. If the service is unreachable (not started, crashed, etc.), every
 // function here falls back to a simple heuristic so restocking keeps working
 // without the ML layer — it's an enhancement, not a hard dependency.

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Download, FileSearch, Printer, Trash2, Upload } from "lucide-react";
 import SalesInfoModal from "./SalesInfoModal";
 import { apiRequest } from "./api";
@@ -79,6 +79,8 @@ export default function Sales() {
 
   useEffect(() => {
     loadSales();
+    const intervalId = window.setInterval(loadSales, 10000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const cashiers = useMemo(
@@ -357,3 +359,6 @@ export default function Sales() {
     </div>
   );
 }
+
+
+

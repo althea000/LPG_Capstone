@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import "./SalesInfoModal.css";
 
 function formatPeso(amount) {

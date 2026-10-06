@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   ChevronDown,
@@ -12,7 +12,9 @@ import {
 } from "lucide-react";
 import AddStockInModal from "./AddStockInModal";
 import AddStockOutModal from "./AddStockOutModal";
+import AddTransferModal from "./AddTransferModal";
 import { apiRequest } from "./api";
+import { isVisibleWarehouseName } from "./utils/warehouseFilters";
 import "./Inventory.css";
 
 function getStatusClass(status) {
@@ -23,6 +25,8 @@ function getStatusClass(status) {
       return "critical";
     case "Low Stock":
       return "low-stock";
+    case "Out of Stock":
+      return "out-of-stock";
     default:
       return "";
   }
@@ -194,6 +198,7 @@ export default function Inventory() {
 
   const [isStockInOpen, setIsStockInOpen] = useState(false);
   const [isStockOutOpen, setIsStockOutOpen] = useState(false);
+  const [isTransferOpen, setIsTransferOpen] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -220,7 +225,10 @@ export default function Inventory() {
   }, []);
 
   const warehouseOptions = useMemo(
-    () => ["All Warehouse", ...new Set(inventory.map((i) => i.warehouse))],
+    () => [
+      "All Warehouse",
+      ...new Set(inventory.map((i) => i.warehouse).filter((warehouse) => warehouse && isVisibleWarehouseName(warehouse))),
+    ],
     [inventory]
   );
 
@@ -239,12 +247,13 @@ export default function Inventory() {
   const counts = useMemo(() => {
     return inventory.reduce(
       (acc, item) => {
-        if (item.status === "Critical") acc.critical += 1;
+        if (item.status === "Out of Stock") acc.outOfStock += 1;
+        else if (item.status === "Critical") acc.critical += 1;
         else if (item.status === "Low Stock") acc.low += 1;
         else acc.normal += 1;
         return acc;
       },
-      { critical: 0, low: 0, normal: 0 }
+      { outOfStock: 0, critical: 0, low: 0, normal: 0 }
     );
   }, [inventory]);
 
@@ -351,6 +360,10 @@ export default function Inventory() {
         {/* Metric Cards */}
         <div className="inventory-cards-grid">
           <div className="inventory-card">
+            <div className="inventory-card-label">Out of Stock Items</div>
+            <div className="inventory-card-value">{counts.outOfStock}</div>
+          </div>
+          <div className="inventory-card">
             <div className="inventory-card-label">Critical Items</div>
             <div className="inventory-card-value">{counts.critical}</div>
           </div>
@@ -401,6 +414,9 @@ export default function Inventory() {
             <button className="action-btn" onClick={() => setIsStockOutOpen(true)}>
               <Plus size={16} /> Add Stock Out
             </button>
+            <button className="action-btn" onClick={() => setIsTransferOpen(true)}>
+              <Plus size={16} /> Transfer
+            </button>
           </div>
         </div>
 
@@ -440,6 +456,7 @@ export default function Inventory() {
               <option value="Normal">Normal</option>
               <option value="Critical">Critical</option>
               <option value="Low Stock">Low Stock</option>
+              <option value="Out of Stock">Out of Stock</option>
             </select>
             <ChevronDown size={16} className="inventory-select-icon" />
           </div>
@@ -573,6 +590,21 @@ export default function Inventory() {
           loadTransactions();
         }}
       />
+      <AddTransferModal
+        isOpen={isTransferOpen}
+        onClose={() => setIsTransferOpen(false)}
+        onSuccess={() => {
+          loadInventory();
+          loadTransactions();
+        }}
+      />
     </div>
   );
 }
+
+
+
+
+
+
+

@@ -1,4 +1,4 @@
-const router = require("express").Router();
+﻿const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -63,6 +63,10 @@ router.get(
       sql += ` AND o.OrderType = :type`;
       params.type = type;
     }
+
+    // Hide requested historical records from Order & Delivery module list.
+    sql += ` AND DATE(o.OrderDate) <> '2026-10-07'`;
+
     sql += ` ORDER BY o.OrderDate DESC`;
     const [rows] = await pool.query(sql, params);
     res.json(rows);
@@ -443,3 +447,4 @@ router.delete(
 );
 
 module.exports = router;
+

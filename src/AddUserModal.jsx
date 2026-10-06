@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-react";
 import "./AddUserModal.css";
 import { apiRequest } from "./api";
 import { buildModulesByRole } from "./rbac";
+import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 
 const moduleOptions = [
   { key: "dashboard", label: "Dashboard" },
@@ -47,7 +48,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
     Promise.all([apiRequest("/roles"), apiRequest("/warehouses")])
       .then(([roleData, warehouseData]) => {
         setRoles(Array.isArray(roleData) ? roleData : []);
-        setBranches(Array.isArray(warehouseData) ? warehouseData : []);
+        setBranches(filterVisibleWarehouses(warehouseData));
       })
       .catch((err) => setError(err.message || "Failed to load roles/branches."));
   }, [isOpen]);
@@ -185,7 +186,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             <label className="field-label">{isEditing ? "New Password (optional)" : "Password"}</label>
             <input
               type="password"
-              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+              placeholder="••••••••••••"
               className="field-input"
               value={form.password}
               onChange={(e) => updateField("password", e.target.value)}
@@ -198,7 +199,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             <label className="field-label">{isEditing ? "Confirm New Password" : "Confirm Password"}</label>
             <input
               type="password"
-              placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢"
+              placeholder="••••••••••••"
               className="field-input"
               value={form.confirmPassword}
               onChange={(e) => updateField("confirmPassword", e.target.value)}
@@ -209,7 +210,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
         {/* Role & Assignment */}
         <h3 className="add-user-section">Role &amp; Assignment</h3>
         {!roles.length || !branches.length ? (
-          <p style={{ color: "#6b7280", marginTop: 0 }}>Loading roles and branchesÃ¢â‚¬Â¦</p>
+          <p style={{ color: "#6b7280", marginTop: 0 }}>Loading roles and branches…</p>
         ) : null}
         <div className="add-user-grid three-col">
           <div className="field">
@@ -284,11 +285,15 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             Cancel
           </button>
           <button type="button" className="add-user-btn save" onClick={handleSave} disabled={isSubmitting}>
-            {isSubmitting ? "Savingâ€¦" : isEditing ? "Save Changes" : "Save User"}
+            {isSubmitting ? "Saving…" : isEditing ? "Save Changes" : "Save User"}
           </button>
         </div>
       </div>
     </div>
   );
 }
+
+
+
+
 

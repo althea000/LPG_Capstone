@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import "./StockAdjustmentModal.css";
 import { apiRequest } from "./api";
+import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 
 export default function StockAdjustmentModal({ isOpen, onClose, onSuccess }) {
   const [warehouses, setWarehouses] = useState([]);
@@ -16,8 +17,9 @@ export default function StockAdjustmentModal({ isOpen, onClose, onSuccess }) {
     setError("");
     apiRequest("/warehouses")
       .then((data) => {
-        setWarehouses(data);
-        if (data[0]) setWarehouseId(data[0].id);
+        const visibleWarehouses = filterVisibleWarehouses(data);
+        setWarehouses(visibleWarehouses);
+        if (visibleWarehouses[0]) setWarehouseId(visibleWarehouses[0].id);
       })
       .catch((err) => setError(err.message || "Failed to load warehouses."));
   }, [isOpen]);
@@ -181,3 +183,8 @@ export default function StockAdjustmentModal({ isOpen, onClose, onSuccess }) {
     </div>
   );
 }
+
+
+
+
+

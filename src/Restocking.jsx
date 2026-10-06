@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   Search,
   ChevronDown,
@@ -380,7 +380,7 @@ export default function Restocking() {
                     filteredData.map((item) => {
                       const isSelected = selectedRows.includes(item.restockId);
                       return (
-                        <tr key={item.restockId} className={isSelected ? "selected-row" : ""} title={`${item.productName} · ${item.supplierName}`}>
+                        <tr key={item.restockId} className={isSelected ? "selected-row" : ""} title={`${item.productName} Â· ${item.supplierName}`}>
                           <td>
                             <input
                               type="checkbox"
@@ -579,3 +579,4 @@ export default function Restocking() {
     </div>
   );
 }
+

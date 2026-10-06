@@ -1,4 +1,4 @@
-/* ─── Reset & Base ─────────────────────────────────────────── */
+﻿/* ─── Reset & Base ─────────────────────────────────────────── */
 * {
   margin: 0;
   padding: 0;
@@ -287,3 +287,4 @@ input:checked + .toggle-slider:before {
   justify-content: flex-end;
   align-items: flex-end;
 }
+

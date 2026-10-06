@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import AddUserModal from "./AddUserModal";
+import { isVisibleWarehouseName } from "./utils/warehouseFilters";
 import { apiRequest } from "./api";
 import "./Users.css";
 
@@ -74,7 +75,7 @@ function ViewUserModal({ user, onClose }) {
           <div><strong>Full Name:</strong> {user.name}</div>
           <div><strong>Email:</strong> {user.email}</div>
           <div><strong>Role:</strong> {user.role}</div>
-          <div><strong>Branch:</strong> {user.branch || "â€”"}</div>
+          <div><strong>Branch:</strong> {user.branch || "—"}</div>
           <div><strong>Status:</strong> {user.status}</div>
           <div><strong>Created:</strong> {new Date(user.createdAt).toLocaleString()}</div>
           <div>
@@ -147,7 +148,10 @@ export default function Users() {
   }, [users]);
   const statuses = ["All Status", "Active", "Inactive"];
   const branches = useMemo(
-    () => ["All Branch/Warehouse", ...new Set(users.map((u) => u.branch).filter(Boolean))],
+    () => [
+      "All Branch/Warehouse",
+      ...new Set(users.map((u) => u.branch).filter((branch) => branch && isVisibleWarehouseName(branch))),
+    ],
     [users]
   );
 
@@ -398,7 +402,7 @@ export default function Users() {
                       <td>{entry.name}</td>
                       <td>{entry.role}</td>
                       <td>{entry.module}</td>
-                      <td>{entry.action}{entry.description ? ` â€” ${entry.description}` : ""}</td>
+                      <td>{entry.action}{entry.description ? ` — ${entry.description}` : ""}</td>
                       <td>{new Date(entry.datetime).toLocaleString()}</td>
                     </tr>
                   ))}
@@ -465,6 +469,10 @@ export default function Users() {
     </div>
   );
 }
+
+
+
+
 
 
 

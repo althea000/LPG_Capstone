@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { Search, ChevronDown, ShoppingCart, Wallet, Minus, Plus, X, PauseCircle } from "lucide-react";
 import PaymentModal from "./PaymentModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
+import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 import "./PosTerminal.css";
 
 const discountOptions = [
@@ -14,6 +15,7 @@ const discountOptions = [
 const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
+const DEFAULT_WAREHOUSE_OPTION = "All Warehouses";
 const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
 
 const resolveImageUrl = (product) => {
@@ -150,7 +152,7 @@ function HeldCartsModal({ isOpen, onClose, heldCarts, onRestore, onDiscard }) {
                 <span style={{ fontWeight: 700, color: "#2563eb" }}>{formatPeso(total)}</span>
               </div>
               <p style={{ margin: "0 0 8px 0", fontSize: "0.8rem", color: "#6b7280" }}>
-                {held.items.length} item(s) · {held.customerType}
+                {held.items.length} item(s) Â· {held.customerType}
               </p>
               <ul style={{ margin: "0 0 10px 0", paddingLeft: 18, fontSize: "0.78rem", color: "#374151" }}>
                 {held.items.slice(0, 4).map((it) => (
@@ -184,6 +186,8 @@ function HeldCartsModal({ isOpen, onClose, heldCarts, onRestore, onDiscard }) {
 
 export default function PosTerminal() {
   const [products, setProducts] = useState([]);
+  const [warehouses, setWarehouses] = useState([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -215,25 +219,58 @@ export default function PosTerminal() {
       ImageURL: p.ImageURL ?? p.imageUrl ?? null,
     }));
 
+  const buildProductsQuery = () => {
+    const params = new URLSearchParams({ status: "Active" });
+    if (selectedWarehouseId) params.set("warehouseId", selectedWarehouseId);
+    return `/products?${params.toString()}`;
+  };
+
+  const refreshProducts = async (warehouseOverride = selectedWarehouseId) => {
+    const params = new URLSearchParams({ status: "Active" });
+    if (warehouseOverride) params.set("warehouseId", warehouseOverride);
+    const data = await apiRequest(`/products?${params.toString()}`);
+    setProducts(mapProducts(data));
+  };
+
   useEffect(() => {
     let cancelled = false;
-    setIsLoadingProducts(true);
-    apiRequest(`/products?status=Active`)
-      .then((data) => {
+
+    const loadWarehousesAndProducts = async () => {
+      setIsLoadingProducts(true);
+      try {
+        const warehouseRows = await apiRequest("/warehouses");
+        if (cancelled) return;
+
+        const activeWarehouses = filterVisibleWarehouses(
+          Array.isArray(warehouseRows)
+            ? warehouseRows.filter((w) => String(w.status || "Active") === "Active")
+            : []
+        );
+        setWarehouses(activeWarehouses);
+
+        const nextWarehouseId = selectedWarehouseId || activeWarehouses[0]?.id || "";
+        if (!selectedWarehouseId && nextWarehouseId) {
+          setSelectedWarehouseId(nextWarehouseId);
+          return;
+        }
+
+        const data = await apiRequest(buildProductsQuery());
         if (cancelled) return;
         setProducts(mapProducts(data));
         setLoadError("");
-      })
-      .catch((err) => {
+      } catch (err) {
         if (!cancelled) setLoadError(err.message || "Failed to load products.");
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setIsLoadingProducts(false);
-      });
+      }
+    };
+
+    loadWarehousesAndProducts();
+
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [selectedWarehouseId]);
 
   const categories = useMemo(() => {
     const unique = [...new Set(products.map((p) => p.category).filter(Boolean))];
@@ -304,6 +341,7 @@ export default function PosTerminal() {
       customerType,
       discountValue,
       paymentMethod,
+      warehouseId: selectedWarehouseId,
     };
     setHeldCarts((prev) => [held, ...prev]);
     clearCart();
@@ -320,6 +358,7 @@ export default function PosTerminal() {
     setCustomerType(held.customerType || "Walk-in");
     setDiscountValue(held.discountValue || 0);
     setPaymentMethod(held.paymentMethod || "");
+    setSelectedWarehouseId(held.warehouseId || selectedWarehouseId);
     setHeldCarts((prev) => prev.filter((h) => h.id !== held.id));
     setShowHeldModal(false);
   };
@@ -356,6 +395,7 @@ export default function PosTerminal() {
           })),
           discount,
           paymentMethod: paymentMethod || "Cash",
+          warehouseId: selectedWarehouseId || undefined,
           amountCollected,
         }),
       });
@@ -381,11 +421,7 @@ export default function PosTerminal() {
       clearCart();
       alert(`Sale ${response.saleNo} completed. Change due: ₱${response.changeDue?.toFixed(2) ?? "0.00"}`);
 
-      apiRequest(`/products?status=Active`)
-        .then((data) => {
-          setProducts(mapProducts(data));
-        })
-        .catch(() => {});
+      refreshProducts().catch(() => {});
     } catch (err) {
       setPosError(err.message || "Failed to process payment. Please try again.");
     } finally {
@@ -418,6 +454,19 @@ export default function PosTerminal() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="pos-search-input"
                 />
+              </div>
+              <div className="pos-select-wrap">
+                <select
+                  className="pos-select"
+                  value={selectedWarehouseId}
+                  onChange={(e) => setSelectedWarehouseId(e.target.value)}
+                >
+                  <option value="">{DEFAULT_WAREHOUSE_OPTION}</option>
+                  {warehouses.map((warehouse) => (
+                    <option key={warehouse.id} value={warehouse.id}>{warehouse.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={16} className="pos-select-icon" />
               </div>
               <div className="pos-select-wrap">
                 <select
@@ -597,3 +646,11 @@ export default function PosTerminal() {
     </div>
   );
 }
+
+
+
+
+
+
+
+

@@ -1,11 +1,10 @@
-const router = require("express").Router();
+﻿const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 
 router.use(authenticate);
-
 // GET /customers?search=
 router.get(
   "/",
@@ -101,3 +100,7 @@ router.delete(
 );
 
 module.exports = router;
+
+
+
+

@@ -1,4 +1,4 @@
-require("dotenv").config();
+﻿require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const pool = require("../config/db");
 
@@ -403,8 +403,11 @@ async function seed() {
       FullName VARCHAR(150) NULL,
       Address VARCHAR(255) NULL,
       ContactEmail VARCHAR(150) NULL,
-      Phone VARCHAR(30) NULL,
-      LogoDataUrl LONGTEXT NULL,
+      Phone              VARCHAR(30) NULL,
+  Branch             VARCHAR(150) NULL,
+  Warehouse          VARCHAR(150) NULL,
+  Brand              VARCHAR(150) NULL,
+  LogoDataUrl        LONGTEXT NULL,
       TaxRate DECIMAL(5,2) NOT NULL DEFAULT 12.00,
       TaxEnabled TINYINT(1) NOT NULL DEFAULT 1,
       Currency VARCHAR(10) NOT NULL DEFAULT 'PHP',
@@ -531,3 +534,6 @@ seed().catch((err) => {
   console.error("Seeding failed with error:", err);
   process.exit(1);
 });
+
+
+

@@ -1,4 +1,4 @@
-const nodemailer = require("nodemailer");
+﻿const nodemailer = require("nodemailer");
 require("dotenv").config();
 
 // Uses standard SMTP env vars — works with Gmail (with an App Password),

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
 import "./OrderAndDelivery.css";
@@ -226,7 +226,7 @@ function NewOrderModal({ isOpen, onClose, onCreated, customers }) {
                 style={{ width: 60 }}
               />
               <span>{p ? peso(p.unitPrice) : "—"}</span>
-              <button type="button" className="od-btn od-btn-outline" onClick={() => removeRow(idx)}>✕</button>
+              <button type="button" className="od-btn od-btn-outline" onClick={() => removeRow(idx)}>×</button>
             </div>
           );
         })}
@@ -868,3 +868,6 @@ export default function OrderAndDelivery() {
     </div>
   );
 }
+
+
+

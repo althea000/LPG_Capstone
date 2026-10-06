@@ -1,4 +1,4 @@
-const router = require("express").Router();
+﻿const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -16,6 +16,9 @@ function mapRow(row) {
     address: row.Address || "",
     contactEmail: row.ContactEmail || "",
     phone: row.Phone || "",
+    branch: row.Branch || "",
+    warehouse: row.Warehouse || "",
+    brand: row.Brand || "",
     logoDataUrl: row.LogoDataUrl || null,
 
     taxRate: Number(row.TaxRate),
@@ -64,15 +67,18 @@ router.put(
   authorize("Admin", "Manager"),
   asyncHandler(async (req, res) => {
     await ensureRow(req.user.companyId);
-    const { fullName, address, contactEmail, phone } = req.body;
+    const { fullName, address, contactEmail, phone, branch, warehouse, brand } = req.body;
     await pool.query(
       `UPDATE CompanySettings SET
          FullName = COALESCE(:fullName, FullName),
          Address = COALESCE(:address, Address),
          ContactEmail = COALESCE(:contactEmail, ContactEmail),
-         Phone = COALESCE(:phone, Phone)
+         Phone = COALESCE(:phone, Phone),
+         Branch = COALESCE(:branch, Branch),
+         Warehouse = COALESCE(:warehouse, Warehouse),
+         Brand = COALESCE(:brand, Brand)
        WHERE CompanyID = :companyId`,
-      { companyId: req.user.companyId, fullName: fullName ?? null, address: address ?? null, contactEmail: contactEmail ?? null, phone: phone ?? null }
+      { companyId: req.user.companyId, fullName: fullName ?? null, address: address ?? null, contactEmail: contactEmail ?? null, phone: phone ?? null, branch: branch ?? null, warehouse: warehouse ?? null, brand: brand ?? null }
     );
     res.json({ message: "Business profile saved." });
   })
@@ -184,3 +190,5 @@ router.put(
 );
 
 module.exports = router;
+
+

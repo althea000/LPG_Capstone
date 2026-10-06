@@ -1,4 +1,4 @@
-// Builds the DOE Annex AR-E-2 "Annual Update Report on LPG Supply and Demand
+﻿// Builds the DOE Annex AR-E-2 "Annual Update Report on LPG Supply and Demand
 // Balance" for a given brand and year, using live InventoryTransaction data
 // to reconstruct month-by-month Beginning/Purchases/Sales/Ending balances.
 

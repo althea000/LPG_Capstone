@@ -179,7 +179,7 @@ function LowStockModal({ isOpen, onClose }) {
   if (!isOpen) return null;
   return (
     <ModalShell title="Products Needing Attention" onClose={onClose}>
-      {isLoading && <p>Loadingâ€¦</p>}
+      {isLoading && <p>Loading…</p>}
       {!isLoading && rows.length === 0 && <p>No products are below their reorder level.</p>}
       {!isLoading && rows.map((r) => (
         <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
@@ -210,7 +210,7 @@ function TopProductsModal({ isOpen, onClose }) {
   if (!isOpen) return null;
   return (
     <ModalShell title="Best Sellers (Last 30 Days)" onClose={onClose}>
-      {isLoading && <p>Loadingâ€¦</p>}
+      {isLoading && <p>Loading…</p>}
       {!isLoading && rows.length === 0 && <p>No sales recorded in the last 30 days.</p>}
       {!isLoading && rows.map((r, i) => (
         <div key={r.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
@@ -241,12 +241,12 @@ function ActivityLogModal({ isOpen, onClose, nowTs }) {
   if (!isOpen) return null;
   return (
     <ModalShell title="Activity Log" onClose={onClose}>
-      {isLoading && <p>Loadingâ€¦</p>}
+      {isLoading && <p>Loading…</p>}
       {!isLoading && rows.length === 0 && <p>No activity recorded yet.</p>}
       {!isLoading && rows.map((r) => (
         <div key={r.id} style={{ padding: "8px 0", borderBottom: "1px solid #f3f4f6" }}>
           <p style={{ margin: 0, fontSize: "0.85rem" }}>
-            <strong>{r.user}</strong> â€” {r.action} in {r.module}
+            <strong>{r.user}</strong> — {r.action} in {r.module}
             {r.description ? `: ${r.description}` : ""}
           </p>
           <p style={{ margin: 0, fontSize: "0.75rem", color: "#9ca3af" }}>{formatTimestampWithRelative(r.date, nowTs)}</p>
@@ -323,7 +323,7 @@ export default function Dashboard() {
       <div className="dashboard">
         <div className="dashboard-inner">
           <h1 className="dashboard-title">Dashboard</h1>
-          <p>Loadingâ€¦</p>
+          <p>Loading…</p>
         </div>
       </div>
     );
@@ -457,6 +457,8 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
 
 
 

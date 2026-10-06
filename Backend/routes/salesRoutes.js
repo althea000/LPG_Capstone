@@ -1,4 +1,4 @@
-const router = require("express").Router();
+﻿const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -75,6 +75,13 @@ router.get(
       sql += ` AND o.OrderStatus = :status`;
       params.status = status;
     }
+
+    // Hide demo/seeded rows and the requested historical cleanup date
+    // from the Sales module listing.
+    sql += `
+      AND (s.Remarks IS NULL OR s.Remarks NOT LIKE 'Dashboard history seed %')
+      AND DATE(s.SaleDate) <> '2026-10-07'`;
+
     sql += ` ORDER BY s.SaleDate DESC`;
     const [rows] = await pool.query(sql, params);
     res.json(rows);
@@ -566,3 +573,6 @@ router.delete(
 );
 
 module.exports = router;
+
+
+

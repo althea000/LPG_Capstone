@@ -1,4 +1,4 @@
-import { apiRequest } from "../api";
+﻿import { apiRequest } from "../api";
 
 let cachedSettings = null;
 let cacheTime = 0;
@@ -106,7 +106,7 @@ function buildReceiptHtml(sale, settings) {
           ${logo ? `<img src="${logo}" class="logo" alt="Logo" />` : ""}
           <p class="business-name">${esc(businessName)}</p>
           ${address ? `<p class="business-meta">${esc(address)}</p>` : ""}
-          ${phone || email ? `<p class="business-meta">${[phone, email].filter(Boolean).map(esc).join(" · ")}</p>` : ""}
+          ${phone || email ? `<p class="business-meta">${[phone, email].filter(Boolean).map(esc).join(" Â· ")}</p>` : ""}
           ${headerText ? `<p class="header-text">${esc(headerText)}</p>` : ""}
         </div>
 
@@ -145,7 +145,7 @@ function buildReceiptHtml(sale, settings) {
         </div>
 
         <div class="footer">${esc(footerMessage)}</div>
-        <div class="official-tag">This serves as your official receipt · Powered by GasTrack</div>
+        <div class="official-tag">This serves as your official receipt Â· Powered by GasTrack</div>
       </body>
     </html>
   `;
@@ -247,3 +247,4 @@ export async function printReceipt(sale) {
     setTimeout(() => URL.revokeObjectURL(url), 60000);
   }
 }
+

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import "./ViewSupplierModal.css";
 import { apiRequest } from "./api";
 
@@ -39,7 +39,7 @@ export default function ViewSupplierModal({ isOpen, onClose, supplier }) {
       <div className="view-supplier-modal-card">
         <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 800 }}>{supplier.name}</h2>
         <p style={{ margin: "4px 0 0 0", color: "#6b7280", fontSize: "0.9rem" }}>
-          {supplier.contactPerson} · {supplier.phone} · {supplier.email}
+          {supplier.contactPerson} Â· {supplier.phone} Â· {supplier.email}
         </p>
 
         {error && <p style={{ color: "#dc2626", fontWeight: 600 }}>{error}</p>}
@@ -174,3 +174,4 @@ export default function ViewSupplierModal({ isOpen, onClose, supplier }) {
     </div>
   );
 }
+

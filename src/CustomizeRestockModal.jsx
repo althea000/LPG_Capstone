@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import "./CustomizeRestockModal.css";
 import { apiRequest } from "./api";
 
@@ -123,3 +123,4 @@ export default function CustomizeRestockModal({ isOpen, onClose, items, onApplie
     </div>
   );
 }
+

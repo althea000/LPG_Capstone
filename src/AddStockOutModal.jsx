@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import "./AddStockOutModal.css";
 import { apiRequest } from "./api";
+import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 
 const REASONS = ["Damaged", "Expired", "Defective", "Lost"];
 
@@ -20,9 +21,10 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
     setError("");
     Promise.all([apiRequest("/warehouses"), apiRequest("/products?status=Active")])
       .then(([warehouseData, productData]) => {
-        setWarehouses(warehouseData);
+        const visibleWarehouses = filterVisibleWarehouses(warehouseData);
+        setWarehouses(visibleWarehouses);
         setProducts(productData);
-        if (warehouseData[0]) setWarehouseId(warehouseData[0].id);
+        if (visibleWarehouses[0]) setWarehouseId(visibleWarehouses[0].id);
       })
       .catch((err) => setError(err.message || "Failed to load warehouses/products."));
   }, [isOpen]);
@@ -191,7 +193,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
                         onClick={() => removeItemRow(index)}
                         style={{ background: "none", border: "none", color: "#d90429", cursor: "pointer", fontWeight: 700 }}
                       >
-                        ✕
+                        ×
                       </button>
                     </td>
                   </tr>
@@ -217,3 +219,8 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
     </div>
   );
 }
+
+
+
+
+

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import "./AddProductModal.css";
 import { apiRequest } from "./api";
 
@@ -280,3 +280,4 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
     </div>
   );
 }
+

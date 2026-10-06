@@ -1,4 +1,4 @@
-
+﻿
 SET FOREIGN_KEY_CHECKS = 0;
 
 DROP TABLE IF EXISTS UserActivity, DataActivityLog, Delivery, Payment, Sales,
@@ -298,6 +298,9 @@ CREATE TABLE CompanySettings (
   Address            VARCHAR(255) NULL,
   ContactEmail       VARCHAR(150) NULL,
   Phone              VARCHAR(30) NULL,
+  Branch             VARCHAR(150) NULL,
+  Warehouse          VARCHAR(150) NULL,
+  Brand              VARCHAR(150) NULL,
   LogoDataUrl        LONGTEXT NULL,
   TaxRate            DECIMAL(5,2) NOT NULL DEFAULT 12.00,
   TaxEnabled         TINYINT(1) NOT NULL DEFAULT 1,
@@ -320,3 +323,5 @@ CREATE TABLE CompanySettings (
 );
 
 SET FOREIGN_KEY_CHECKS = 1;
+
+
