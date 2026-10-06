@@ -498,23 +498,23 @@ async function seed() {
   // Seed Products
   await pool.query(`
     INSERT INTO Product (ProductID, ProductName, CategoryID, BrandID, SupplierID, Unit, UnitPrice, CostPrice, ReorderLevel, ImageURL, ARModelURL, Status, CreatedAt) VALUES 
-    ('P-001', 'Gasul LPG 2.7 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 243.00, 200.00, 30, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
-    ('P-002', 'Gasul LPG 7 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 603.00, 560.00, 20, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
-    ('P-003', 'Gasul LPG 11 kg Elite', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 907.00, 850.00, 40, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
-    ('P-004', 'Gasul LPG 11 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 921.00, 870.00, 50, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
-    ('P-005', 'Gasul LPG 22 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 1726.00, 1680.00, 15, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
-    ('P-006', 'Gasul LPG 50 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 3964.00, 3890.00, 10, NULL, NULL, 'Active', '2023-09-20 10:00:00')
+    ('P-D2N7X4KP', 'Gasul LPG 2.7 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 243.00, 200.00, 30, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
+    ('P-BX6T9R4N', 'Gasul LPG 7 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 603.00, 560.00, 20, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
+    ('P-P3N8XK5T', 'Gasul LPG 11 kg Elite', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 907.00, 850.00, 40, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
+    ('P-M7Q2Z9LR', 'Gasul LPG 11 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 921.00, 870.00, 50, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
+    ('P-H4V8TN2W', 'Gasul LPG 22 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 1726.00, 1680.00, 15, NULL, NULL, 'Active', '2023-09-20 10:00:00'),
+    ('P-7KF29M3Q', 'Gasul LPG 50 kg', 'CTGRY-001', 'BD-001', 'SP-001', 'kg', 3964.00, 3890.00, 10, NULL, NULL, 'Active', '2023-09-20 10:00:00')
   `);
 
   // Seed Inventory
   await pool.query(`
     INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand, LastUpdated) VALUES 
-    ('INT-001', 'WH-001', 'P-001', 11, '2026-09-27 10:32:24'),
-    ('INT-002', 'WH-001', 'P-002', 8, '2026-09-24 10:43:06'),
-    ('INT-003', 'WH-001', 'P-003', 18, '2026-09-26 09:33:00'),
-    ('INT-004', 'WH-001', 'P-004', 105, '2026-09-28 10:16:29'),
-    ('INT-005', 'WH-001', 'P-005', 36, '2026-09-28 07:55:00'),
-    ('INT-006', 'WH-001', 'P-006', 7, '2026-09-26 13:04:15')
+    ('INT-001', 'WH-001', 'P-D2N7X4KP', 11, '2026-09-27 10:32:24'),
+    ('INT-002', 'WH-001', 'P-BX6T9R4N', 8, '2026-09-24 10:43:06'),
+    ('INT-003', 'WH-001', 'P-P3N8XK5T', 18, '2026-09-26 09:33:00'),
+    ('INT-004', 'WH-001', 'P-M7Q2Z9LR', 105, '2026-09-28 10:16:29'),
+    ('INT-005', 'WH-001', 'P-H4V8TN2W', 36, '2026-09-28 07:55:00'),
+    ('INT-006', 'WH-001', 'P-7KF29M3Q', 7, '2026-09-26 13:04:15')
   `);
 
   // Seed Default Customer

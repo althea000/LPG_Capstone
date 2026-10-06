@@ -17,6 +17,8 @@ mysql -u root -p gastrack < db/patch_user_fields.sql
 mysql -u root -p gastrack < db/patch_company_settings.sql
 mysql -u root -p gastrack < backend/db/patch_password_reset.sql
 mysql -u root -p gastrack < backend/db/patch_restock_confidence.sql
+# optional (for existing DBs with incremental P-001 style product IDs):
+mysql -u root -p gastrack < backend/db/patch_product_sku.sql
 
 npm run seed
 npm run seed:products

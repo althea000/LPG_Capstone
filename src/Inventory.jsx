@@ -31,8 +31,8 @@ function getStatusClass(status) {
 function downloadInventoryCsvTemplate() {
   const template =
     "ProductID,WarehouseID,Quantity,Mode\n" +
-    "1,1,50,Set\n" +
-    "2,1,10,Add\n";
+    "P-7KF29M3Q,WH-001,50,Set\n" +
+    "P-BX6T9R4N,WH-001,10,Add\n";
   const blob = new Blob([template], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

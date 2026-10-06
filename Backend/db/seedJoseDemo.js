@@ -21,6 +21,27 @@ async function nextId(conn, table, column, prefix, pad = 3) {
   return `${prefix}-${String(max + 1).padStart(pad, "0")}`;
 }
 
+function randomProductCode(length = 8) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return code;
+}
+
+async function nextProductId(conn, maxAttempts = 20) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = `P-${randomProductCode(8)}`;
+    const [rows] = await conn.query(
+      `SELECT ProductID FROM Product WHERE ProductID = :id LIMIT 1`,
+      { id: candidate }
+    );
+    if (!rows[0]) return candidate;
+  }
+  throw new Error("Could not generate a unique Product ID.");
+}
+
 function daysAgo(n, hour = 10) {
   const d = new Date();
   d.setDate(d.getDate() - n);
@@ -237,7 +258,7 @@ async function main() {
 
     for (const p of demoProductsToCreate) {
       if (productMap.has(p.name)) continue;
-      const productId = await nextId(conn, "Product", "ProductID", "P");
+      const productId = await nextProductId(conn);
       await conn.query(
         `INSERT INTO Product (ProductID, ProductName, CategoryID, BrandID, SupplierID, Unit, UnitPrice, CostPrice, ReorderLevel, Status)
          VALUES (:productId, :name, :categoryId, :brandId, :supplierId, :unit, :unitPrice, :costPrice, :reorderLevel, 'Active')`,

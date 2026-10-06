@@ -34,9 +34,9 @@ function FilterSelect({ value, onChange, options }) {
 function downloadCsvTemplate() {
   const template =
     "SaleRef,ProductID,Quantity,UnitPrice,Discount,PaymentMethod,SaleDate\n" +
-    "IMP-1,1,2,249.00,0,Cash,2026-01-05 10:30:00\n" +
-    "IMP-1,3,1,907.00,0,Cash,2026-01-05 10:30:00\n" +
-    "IMP-2,2,1,603.00,20,GCash,2026-01-06 14:00:00\n";
+    "IMP-1,P-7KF29M3Q,2,249.00,0,Cash,2026-01-05 10:30:00\n" +
+    "IMP-1,P-P3N8XK5T,1,907.00,0,Cash,2026-01-05 10:30:00\n" +
+    "IMP-2,P-BX6T9R4N,1,603.00,20,GCash,2026-01-06 14:00:00\n";
   const blob = new Blob([template], { type: "text/csv" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

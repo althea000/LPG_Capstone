@@ -241,6 +241,7 @@ router.post(
 
     const rawToken = crypto.randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
+    const tokenId = generateId("PRT");
     const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MINUTES * 60 * 1000);
 
     await pool.query(
@@ -248,8 +249,9 @@ router.post(
       { userId: user.UserID }
     );
     await pool.query(
-      `INSERT INTO PasswordResetToken (UserID, TokenHash, ExpiresAt) VALUES (:userId, :tokenHash, :expiresAt)`,
-      { userId: user.UserID, tokenHash, expiresAt }
+      `INSERT INTO PasswordResetToken (TokenID, UserID, TokenHash, ExpiresAt)
+       VALUES (:tokenId, :userId, :tokenHash, :expiresAt)`,
+      { tokenId, userId: user.UserID, tokenHash, expiresAt }
     );
 
     const resetUrl = `${process.env.FRONTEND_URL || "http://localhost:5173"}${process.env.FRONTEND_BASE_PATH || ""}/#/reset-password?token=${rawToken}`;

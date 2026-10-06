@@ -31,7 +31,7 @@ const app = express();
 // Configured allowed origins list
 const allowedOrigins = [
   "https://gastrack-frontend-v2.vercel.app",
-  "https://gastrack-frontend-v2-qz1937smy-gas-track.vercel.app"
+  
 ];
 
 // Add process.env.CORS_ORIGIN if set and not already included

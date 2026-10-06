@@ -19,6 +19,27 @@ async function nextId(conn, table, column, prefix, pad = 3) {
   return `${prefix}-${String(max + 1).padStart(pad, "0")}`;
 }
 
+function randomProductCode(length = 8) {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < length; i++) {
+    code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return code;
+}
+
+async function nextProductId(conn, maxAttempts = 20) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = `P-${randomProductCode(8)}`;
+    const [rows] = await conn.query(
+      `SELECT ProductID FROM Product WHERE ProductID = :id LIMIT 1`,
+      { id: candidate }
+    );
+    if (!rows[0]) return candidate;
+  }
+  throw new ApiError(500, "Could not generate a unique Product ID. Please try again.");
+}
+
 router.use(authenticate);
 
 // GET /products?search=&category=&status=
@@ -59,7 +80,7 @@ router.get(
       sql += ` AND p.Status = :status`;
       params.status = status;
     }
-    sql += ` GROUP BY p.ProductID ORDER BY p.ProductID DESC`;
+    sql += ` GROUP BY p.ProductID ORDER BY p.CreatedAt DESC, p.ProductID DESC`;
     const [rows] = await pool.query(sql, params);
     res.json(rows);
   })
@@ -94,12 +115,15 @@ router.post(
       throw new ApiError(400, "productName, categoryId, brandId, supplierId and unit are required.");
     }
 
-    const [result] = await pool.query(
+    const productId = await nextProductId(pool);
+
+    await pool.query(
       `INSERT INTO Product
-        (ProductName, CategoryID, BrandID, SupplierID, Unit, UnitPrice, CostPrice, ReorderLevel, ImageURL, ARModelURL, Status)
+        (ProductID, ProductName, CategoryID, BrandID, SupplierID, Unit, UnitPrice, CostPrice, ReorderLevel, ImageURL, ARModelURL, Status)
        VALUES
-        (:productName, :categoryId, :brandId, :supplierId, :unit, :unitPrice, :costPrice, :reorderLevel, :imageUrl, :arModelUrl, :status)`,
+        (:productId, :productName, :categoryId, :brandId, :supplierId, :unit, :unitPrice, :costPrice, :reorderLevel, :imageUrl, :arModelUrl, :status)`,
       {
+        productId,
         productName, categoryId, brandId, supplierId, unit,
         unitPrice: unitPrice || 0,
         costPrice: costPrice || 0,
@@ -114,10 +138,10 @@ router.post(
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
        VALUES (:userActivityId, :userId, 'Create', 'Products', :recordId, 'Created a new product')`,
-      { userActivityId, userId: req.user.userId, recordId: result.insertId }
+      { userActivityId, userId: req.user.userId, recordId: productId }
     );
 
-    res.status(201).json({ productId: result.insertId });
+    res.status(201).json({ productId });
   })
 );
 

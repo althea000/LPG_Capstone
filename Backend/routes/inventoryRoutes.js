@@ -63,7 +63,7 @@ router.get(
     if (search) {
       sql += ` AND (p.ProductName LIKE :search OR p.ProductID = :searchId)`;
       params.search = `%${search}%`;
-      params.searchId = Number(search) || 0;
+      params.searchId = String(search).trim();
     }
     const [rows] = await pool.query(sql, params);
     let mapped = rows.map((r) => ({ ...r, status: statusFor(r.currentStock, r.reorderLimit) }));
@@ -269,15 +269,15 @@ router.post(
       for (const [index, row] of rows.entries()) {
         const rowNum = index + 2;
         try {
-          const productId = Number(row.ProductID);
-          const warehouseId = Number(row.WarehouseID);
+          const productId = String(row.ProductID || "").trim();
+          const warehouseId = String(row.WarehouseID || "").trim();
           const quantity = Number(row.Quantity);
           const mode = (row.Mode || "Set").trim().toLowerCase();
 
-          if (!Number.isInteger(productId) || productId <= 0) {
+          if (!productId) {
             throw new Error(`Row ${rowNum}: invalid ProductID "${row.ProductID}"`);
           }
-          if (!Number.isInteger(warehouseId) || warehouseId <= 0) {
+          if (!warehouseId) {
             throw new Error(`Row ${rowNum}: invalid WarehouseID "${row.WarehouseID}"`);
           }
           if (isNaN(quantity) || quantity < 0) {
