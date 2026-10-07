@@ -1,4 +1,5 @@
-require("dotenv").config();
+﻿require("dotenv").config();
+if (!process.env.TZ) process.env.TZ = "Asia/Manila";
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
@@ -98,3 +99,5 @@ app.use(errorHandler);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => console.log(`GasTrack API listening on port ${PORT}`));
+
+

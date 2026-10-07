@@ -1,4 +1,4 @@
-const mysql = require("mysql2/promise");
+﻿const mysql = require("mysql2/promise");
 require("dotenv").config();
 
 const pool = mysql.createPool({
@@ -14,6 +14,14 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   namedPlaceholders: true,
   dateStrings: true,
+  timezone: "+08:00",
+});
+
+pool.on("connection", (connection) => {
+  connection.query("SET time_zone = '+08:00'", () => {
+    // ignore session timezone set errors; app still works with pool-level timezone
+  });
 });
 
 module.exports = pool;
+
