@@ -76,11 +76,9 @@ router.get(
       params.status = status;
     }
 
-    // Hide demo/seeded rows and the requested historical cleanup date
-    // from the Sales module listing.
+    // Hide demo/seeded rows from the Sales module listing.
     sql += `
-      AND (s.Remarks IS NULL OR s.Remarks NOT LIKE 'Dashboard history seed %')
-      AND DATE(s.SaleDate) <> '2026-10-07'`;
+      AND (s.Remarks IS NULL OR s.Remarks NOT LIKE 'Dashboard history seed %')`;
 
     sql += ` ORDER BY s.SaleDate DESC`;
     const [rows] = await pool.query(sql, params);
@@ -573,6 +571,15 @@ router.delete(
 );
 
 module.exports = router;
+
+
+
+
+
+
+
+
+
 
 
 
