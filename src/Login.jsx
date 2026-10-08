@@ -22,10 +22,7 @@ import "./Login.css";
 
 const filters = {
   companyName: (v) => v.replace(/[^A-Za-z0-9 .,&'-]/g, "").slice(0, 150),
-  dtiSecNo: (v) => v.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 16),
-  doeLicenseNo: (v) => v.toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 20),
   branchName: (v) => v.replace(/[^A-Za-z0-9 .,&'-]/g, "").slice(0, 100),
-  cityMunicipality: (v) => v.replace(/[^A-Za-z .,'-]/g, "").slice(0, 100),
   completeAddress: (v) => v.slice(0, 255),
   firstName: (v) => v.replace(/[^A-Za-z\u00F1\u00D1' .-]/g, "").slice(0, 50),
   lastName: (v) => v.replace(/[^A-Za-z\u00F1\u00D1' .-]/g, "").slice(0, 50),
@@ -36,10 +33,7 @@ const filters = {
 
 const patterns = {
   companyName: { test: /^.{2,150}$/, message: "Company name must be at least 2 characters." },
-  dtiSecNo: { test: /^[A-Z]{2,4}\d{6,12}$/, message: "Format: 2–4 letters followed by 6–12 digits, e.g. CS202412345." },
-  doeLicenseNo: { test: /^DOE-LPG-\d{4}-\d{3,4}$/, message: "Format: DOE-LPG-YYYY-NNN, e.g. DOE-LPG-2026-001.", optional: true },
   branchName: { test: /^.{2,100}$/, message: "Branch name must be at least 2 characters." },
-  cityMunicipality: { test: /^.{2,100}$/, message: "Please enter a valid city/municipality." },
   completeAddress: { test: /^.{5,255}$/, message: "Please enter a complete address (at least 5 characters)." },
   firstName: { test: /^[A-Za-z\u00F1\u00D1' .-]{2,50}$/, message: "First name must be at least 2 letters." },
   lastName: { test: /^[A-Za-z\u00F1\u00D1' .-]{2,50}$/, message: "Last name must be at least 2 letters." },
@@ -47,19 +41,9 @@ const patterns = {
   regPassword: { test: /^.{8,}$/, message: "Password must be at least 8 characters." },
 };
 
-const fieldHints = {
-  dtiSecNo: "Format: 2–4 letters + 6–12 digits (e.g. CS202412345)",
-  doeLicenseNo: "Format: DOE-LPG-YYYY-NNN (e.g. DOE-LPG-2026-001)",
-};
-
 function FieldError({ message }) {
   if (!message) return null;
   return <p style={{ color: "#dc2626", fontSize: "0.72rem", margin: "4px 0 0 0" }}>{message}</p>;
-}
-
-function FieldHint({ text }) {
-  if (!text) return null;
-  return <p style={{ color: "#9ca3af", fontSize: "0.72rem", margin: "4px 0 0 0" }}>{text}</p>;
 }
 
 function TopNav({ currentView, setCurrentView }) {
@@ -131,10 +115,7 @@ export default function Login({ onLogin, onRegisterSuccess }) {
   // Registration Form State
   const [regForm, setRegForm] = useState({
     companyName: "",
-    dtiSecNo: "",
-    doeLicenseNo: "",
     branchName: "",
-    cityMunicipality: "",
     completeAddress: "",
     firstName: "",
     lastName: "",
@@ -191,7 +172,7 @@ export default function Login({ onLogin, onRegisterSuccess }) {
     const errors = {};
     Object.entries(patterns).forEach(([field, { test, message, optional }]) => {
       const value = form[field] || "";
-      if (optional && !value) return; // e.g. DOE license number is not required
+      if (optional && !value) return;
       if (!test.test(value)) errors[field] = message;
     });
     if (form.regPassword && form.confirmPassword && form.regPassword !== form.confirmPassword) {
@@ -224,10 +205,7 @@ export default function Login({ onLogin, onRegisterSuccess }) {
         method: "POST",
         body: JSON.stringify({
           companyName: regForm.companyName,
-          dtiSecNo: regForm.dtiSecNo,
-          doeLicenseNo: regForm.doeLicenseNo || undefined,
           branchName: regForm.branchName,
-          cityMunicipality: regForm.cityMunicipality,
           completeAddress: regForm.completeAddress,
           firstName: regForm.firstName,
           lastName: regForm.lastName,
@@ -355,17 +333,6 @@ export default function Login({ onLogin, onRegisterSuccess }) {
                   </div>
                 </div>
               </div>
-
-              <div className="register-reqs-card">
-                <h3 className="register-reqs-title">Requirements</h3>
-                <ul className="register-reqs-list">
-                  <li>DTI / SEC business registration</li>
-                  <li>BIR Certificate of Registration</li>
-                  <li>DOE LPG dealer license</li>
-                  <li>Valid government-issued ID (authorized representative)</li>
-                  <li>Active company email address</li>
-                </ul>
-              </div>
             </div>
 
             <div className="register-main-card">
@@ -392,73 +359,29 @@ export default function Login({ onLogin, onRegisterSuccess }) {
                     />
                     <FieldError message={regErrors.companyName} />
                   </div>
-                  <div className="reg-grid two-col">
-                    <div className="reg-field">
-                      <label className="reg-label">DTI/SEC registration no.</label>
-                      <input
-                        type="text"
-                        name="dtiSecNo"
-                        placeholder="e.g. CS202412345"
-                        value={regForm.dtiSecNo}
-                        onChange={handleRegChange}
-                        className="reg-input"
-                        required
-                      />
-                      <FieldHint text={fieldHints.dtiSecNo} />
-                      <FieldError message={regErrors.dtiSecNo} />
-                    </div>
-                    <div className="reg-field">
-                      <label className="reg-label">DOE distributor license no. (optional)</label>
-                      <input
-                        type="text"
-                        name="doeLicenseNo"
-                        placeholder="e.g. DOE-LPG-2026-001"
-                        value={regForm.doeLicenseNo}
-                        onChange={handleRegChange}
-                        className="reg-input"
-                      />
-                      <FieldHint text={fieldHints.doeLicenseNo} />
-                      <FieldError message={regErrors.doeLicenseNo} />
-                    </div>
-                  </div>
                 </div>
 
                 <div className="register-section">
                   <h3 className="register-section-title">BRANCH / LOCATION</h3>
-                  <div className="reg-grid two-col">
-                    <div className="reg-field">
-                      <label className="reg-label">Primary Branch Name</label>
-                      <input
-                        type="text"
-                        name="branchName"
-                        placeholder="e.g. Main Branch"
-                        value={regForm.branchName}
-                        onChange={handleRegChange}
-                        className="reg-input"
-                        required
-                      />
-                      <FieldError message={regErrors.branchName} />
-                    </div>
-                    <div className="reg-field">
-                      <label className="reg-label">City/Municipality</label>
-                      <input
-                        type="text"
-                        name="cityMunicipality"
-                        placeholder="e.g. Quezon City, Metro Manila"
-                        value={regForm.cityMunicipality}
-                        onChange={handleRegChange}
-                        className="reg-input"
-                        required
-                      />
-                      <FieldError message={regErrors.cityMunicipality} />
-                    </div>
+                  <div className="reg-field full-width">
+                    <label className="reg-label">Primary Branch Name</label>
+                    <input
+                      type="text"
+                      name="branchName"
+                      placeholder="e.g. San Juan Branch"
+                      value={regForm.branchName}
+                      onChange={handleRegChange}
+                      className="reg-input"
+                      required
+                    />
+                    <FieldError message={regErrors.branchName} />
                   </div>
                   <div className="reg-field full-width">
                     <label className="reg-label">Complete Address</label>
                     <input
                       type="text"
                       name="completeAddress"
-                      placeholder="e.g. Building No., Street Name, Barangay"
+                      placeholder="e.g. Building No., Street Name, Barangay, City"
                       value={regForm.completeAddress}
                       onChange={handleRegChange}
                       className="reg-input"
@@ -581,8 +504,8 @@ export default function Login({ onLogin, onRegisterSuccess }) {
 
             <div className="about-right">
               <div className="about-stat-box">
-                <span className="stat-number">2</span>
-                <span className="stat-label">Active branches</span>
+                <span className="stat-number">24/7</span>
+                <span className="stat-label">System Availability</span>
               </div>
               <div className="about-stat-box">
                 <span className="stat-number">100%</span>
@@ -728,4 +651,3 @@ export default function Login({ onLogin, onRegisterSuccess }) {
     </div>
   );
 }
-

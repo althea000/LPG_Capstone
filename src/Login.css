@@ -607,7 +607,7 @@ textarea,
 .about-description {
   font-size: 0.95rem;
   line-height: 1.6;
-  color: #d1d5db;
+  color: rgb(255, 255, 255);
   margin: 0;
 }
 
@@ -638,7 +638,7 @@ textarea,
 
 .stat-label {
   font-size: 0.85rem;
-  color: #d1d5db;
+  color: #ffffff;
   font-weight: 500;
 }
 
@@ -820,4 +820,9 @@ textarea,
   .about-card {
     grid-template-columns: 1fr;
   }
+}
+
+
+.about-stat-box .stat-label {
+  color: #ffffff !important;
 }

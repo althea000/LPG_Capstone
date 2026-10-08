@@ -257,10 +257,11 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* ─── FINANCIAL & TAX RULES ─── */}
+    {/* ─── FINANCIAL & TAX RULES ─── */}
       <div className="settings-card">
         <h2 className="card-title">Financial & Tax Rules</h2>
         <div className="grid-2-col">
+          {/* LEFT COLUMN: Tax Rate, Tax Enable, Discounts */}
           <div className="input-column">
             <div className="form-group">
               <label>Tax rate (%)</label>
@@ -272,6 +273,7 @@ export default function Settings() {
                 onChange={(e) => updateField("taxRate", e.target.value)}
               />
             </div>
+
             <div className="toggle-group" style={{ marginTop: "8px" }}>
               <label>Tax enable</label>
               <label className="toggle-switch">
@@ -283,8 +285,123 @@ export default function Settings() {
                 <span className="toggle-slider"></span>
               </label>
             </div>
+
+            {/* Discounts Section */}
+            <div className="form-group" style={{ marginTop: "16px" }}>
+              <label style={{ display: "block", fontWeight: 600, marginBottom: "8px" }}>Discounts</label>
+              <div className="checkbox-group" style={{ gap: "8px" }}>
+                
+                {/* Default or dynamic discount list */}
+                {(
+                  settings.discounts || [
+                    { label: "No Discount", value: 0 },
+                    { label: "Senior/PWD (5%)", value: 0.05 },
+                    { label: "Member (10%)", value: 0.1 },
+                  ]
+                ).map((disc, idx) => (
+                  <div
+                    key={disc.label + idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      maxWidth: "280px",
+                    }}
+                  >
+                    <label className="checkbox-label" style={{ cursor: "pointer", flex: 1 }}>
+                      <input
+                        type="checkbox"
+                        checked={disc.enabled !== false}
+                        onChange={(e) => {
+                          const currentDiscounts = settings.discounts || [
+                            { label: "No Discount", value: 0 },
+                            { label: "Senior/PWD (5%)", value: 0.05 },
+                            { label: "Member (10%)", value: 0.1 },
+                          ];
+                          const updated = currentDiscounts.map((d, i) =>
+                            i === idx ? { ...d, enabled: e.target.checked } : d
+                          );
+                          updateField("discounts", updated);
+                        }}
+                      />
+                      {disc.label}
+                    </label>
+
+                    {/* Remove (X) Button for ALL Options */}
+                    <button
+                      type="button"
+                      aria-label={`Remove ${disc.label}`}
+                      onClick={() => {
+                        const currentDiscounts = settings.discounts || [
+                          { label: "No Discount", value: 0 },
+                          { label: "Senior/PWD (5%)", value: 0.05 },
+                          { label: "Member (10%)", value: 0.1 },
+                        ];
+                        const updated = currentDiscounts.filter((_, i) => i !== idx);
+                        updateField("discounts", updated);
+                      }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "#9ca3af",
+                        cursor: "pointer",
+                        fontSize: "0.9rem",
+                        fontWeight: 700,
+                        padding: "0 4px",
+                        lineHeight: 1,
+                        marginLeft: "8px",
+                      }}
+                      onMouseEnter={(e) => (e.target.style.color = "#dc2626")}
+                      onMouseLeave={(e) => (e.target.style.color = "#9ca3af")}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                type="button"
+                className="btn-link"
+                style={{
+                  marginTop: "8px",
+                  background: "none",
+                  border: "none",
+                  color: "#2563eb",
+                  cursor: "pointer",
+                  padding: 0,
+                  fontWeight: 500,
+                  fontSize: "0.85rem",
+                  textAlign: "left",
+                }}
+                onClick={() => {
+                  const label = prompt("Enter discount name (e.g., Student, Promo):");
+                  if (!label) return;
+                  const percentStr = prompt("Enter discount percentage (e.g., 15 for 15% or 0 for no discount):");
+                  const percent = parseFloat(percentStr);
+                  if (isNaN(percent) || percent < 0 || percent > 100) {
+                    alert("Invalid percentage entered.");
+                    return;
+                  }
+                  const currentDiscounts = settings.discounts || [
+                    { label: "No Discount", value: 0 },
+                    { label: "Senior/PWD (5%)", value: 0.05 },
+                    { label: "Member (10%)", value: 0.1 },
+                  ];
+                  const newOptionLabel = percent > 0 ? `${label} (${percent}%)` : label;
+                  const updated = [
+                    ...currentDiscounts,
+                    { label: newOptionLabel, value: percent / 100, enabled: true },
+                  ];
+                  updateField("discounts", updated);
+                }}
+              >
+                + Add Option
+              </button>
+            </div>
           </div>
 
+          {/* RIGHT COLUMN: Currency, Rounding Options */}
           <div className="input-column">
             <div className="form-group">
               <label>Currency</label>
@@ -324,6 +441,7 @@ export default function Settings() {
             </div>
           </div>
         </div>
+
         <div className="card-actions">
           <button
             className="btn btn-primary"
@@ -335,6 +453,11 @@ export default function Settings() {
                 roundUp: settings.roundUp,
                 roundDown: settings.roundDown,
                 twoDecimalStandard: settings.twoDecimalStandard,
+                discounts: settings.discounts || [
+                  { label: "No Discount", value: 0, enabled: true },
+                  { label: "Senior/PWD (5%)", value: 0.05, enabled: true },
+                  { label: "Member (10%)", value: 0.1, enabled: true },
+                ],
               })
             }
             disabled={savingSection === "tax"}

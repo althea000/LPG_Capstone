@@ -13,7 +13,7 @@ const discountOptions = [
 ];
 
 const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
-const customerTypes = ["Walk-in", "Regular Customer", "Business Account"];
+const customerTypes = ["Walk-in", "Pickup", "Delivery"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
 const DEFAULT_WAREHOUSE_OPTION = "All Warehouses";
 const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
@@ -91,7 +91,7 @@ function ProductCard({ product, onAdd }) {
   );
 }
 
-function CartItem({ item, onIncrement, onDecrement, onRemove }) {
+function CartItem({ item, onIncrement, onDecrement, onUpdateQuantity, onRemove }) {
   return (
     <div className="cart-item">
       <div className="cart-item-info">
@@ -102,7 +102,16 @@ function CartItem({ item, onIncrement, onDecrement, onRemove }) {
         <button type="button" className="qty-btn" onClick={() => onDecrement(item.id)} aria-label="Decrease quantity">
           <Minus size={14} />
         </button>
-        <span className="qty-value">{item.qty}</span>
+        <input
+          type="number"
+          min="1"
+          max={item.stock}
+          value={item.qty}
+          onChange={(e) => onUpdateQuantity(item.id, parseInt(e.target.value) || 1)}
+          className="qty-input"
+          style={{ width: "40px", textAlign: "center", border: "1px solid #d1d5db", borderRadius: "4px", padding: "2px 0", fontSize: "0.85rem" }}
+          aria-label="Edit quantity"
+        />
         <button type="button" className="qty-btn" onClick={() => onIncrement(item.id)} aria-label="Increase quantity">
           <Plus size={14} />
         </button>
@@ -152,7 +161,7 @@ function HeldCartsModal({ isOpen, onClose, heldCarts, onRestore, onDiscard }) {
                 <span style={{ fontWeight: 700, color: "#2563eb" }}>{formatPeso(total)}</span>
               </div>
               <p style={{ margin: "0 0 8px 0", fontSize: "0.8rem", color: "#6b7280" }}>
-                {held.items.length} item(s) Â· {held.customerType}
+                {held.items.length} item(s) · {held.customerType}
               </p>
               <ul style={{ margin: "0 0 10px 0", paddingLeft: 18, fontSize: "0.78rem", color: "#374151" }}>
                 {held.items.slice(0, 4).map((it) => (
@@ -319,6 +328,17 @@ export default function PosTerminal() {
       prev
         .map((item) => (item.id === id ? { ...item, qty: item.qty - 1 } : item))
         .filter((item) => item.qty > 0)
+    );
+  };
+
+  const updateQuantity = (id, newQty) => {
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        // Clamp quantity between 1 and available stock
+        const clampedQty = Math.max(1, Math.min(newQty, item.stock));
+        return { ...item, qty: clampedQty };
+      })
     );
   };
 
@@ -544,6 +564,7 @@ export default function PosTerminal() {
                         item={item}
                         onIncrement={incrementItem}
                         onDecrement={decrementItem}
+                        onUpdateQuantity={updateQuantity}
                         onRemove={removeItem}
                       />
                     ))
@@ -646,11 +667,3 @@ export default function PosTerminal() {
     </div>
   );
 }
-
-
-
-
-
-
-
-
