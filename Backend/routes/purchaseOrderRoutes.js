@@ -29,15 +29,23 @@ router.get(
     let sql = `
       SELECT po.PurchaseOrderID AS id, po.PONo AS poNo, s.SupplierName AS supplier,
              po.OrderDate AS orderDate, po.ExpectedDeliveryDate AS expectedDeliveryDate,
-             po.Status AS status, po.TotalAmount AS totalAmount
-      FROM PurchaseOrder po JOIN Supplier s ON s.SupplierID = po.SupplierID
+             po.Status AS status, po.TotalAmount AS totalAmount,
+             COALESCE(SUM(poi.Quantity), 0) AS totalQty,
+             COUNT(poi.PurchaseOrderItemID) AS itemCount,
+             GROUP_CONCAT(p.ProductName ORDER BY p.ProductName SEPARATOR ', ') AS productNames
+      FROM PurchaseOrder po
+      JOIN Supplier s ON s.SupplierID = po.SupplierID
+      LEFT JOIN PurchaseOrderItem poi ON poi.PurchaseOrderID = po.PurchaseOrderID
+      LEFT JOIN Product p ON p.ProductID = poi.ProductID
       WHERE 1=1`;
     const params = {};
     if (status) {
       sql += ` AND po.Status = :status`;
       params.status = status;
     }
-    sql += ` ORDER BY po.OrderDate DESC`;
+    sql += `
+      GROUP BY po.PurchaseOrderID, po.PONo, s.SupplierName, po.OrderDate, po.ExpectedDeliveryDate, po.Status, po.TotalAmount
+      ORDER BY po.OrderDate DESC`;
     const [rows] = await pool.query(sql, params);
     res.json(rows);
   })
@@ -155,6 +163,31 @@ router.put(
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
+
+      const [poRows] = await conn.query(
+        `SELECT PurchaseOrderID, PONo, Status FROM PurchaseOrder WHERE PurchaseOrderID = :id FOR UPDATE`,
+        { id: req.params.id }
+      );
+      const po = poRows[0];
+      if (!po) throw new ApiError(404, "Purchase order not found.");
+      if (po.Status === "Received") {
+        throw new ApiError(409, "Purchase order has already been received.");
+      }
+      if (po.Status === "Cancelled") {
+        throw new ApiError(409, "Cancelled purchase orders cannot be received.");
+      }
+      if (po.Status !== "Approved" && po.Status !== "Sent") {
+        throw new ApiError(409, "Only sent purchase orders can be received.");
+      }
+
+      const [warehouseRows] = await conn.query(
+        `SELECT WarehouseID FROM Warehouse WHERE WarehouseID = :warehouseId AND CompanyID = :companyId LIMIT 1`,
+        { warehouseId, companyId: req.user.companyId }
+      );
+      if (!warehouseRows[0]) {
+        throw new ApiError(400, "Invalid warehouse selection.");
+      }
+
       const [items] = await conn.query(
         `SELECT ProductID, Quantity FROM PurchaseOrderItem WHERE PurchaseOrderID = :id`,
         { id: req.params.id }
@@ -182,7 +215,7 @@ router.put(
         await conn.query(
           `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
            VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, 'Purchase', :ref)`,
-          { transactionId, invId: inventoryId, userId: req.user.userId, qty: item.Quantity, ref: `PO-${req.params.id}` }
+          { transactionId, invId: inventoryId, userId: req.user.userId, qty: item.Quantity, ref: po.PONo }
         );
       }
       await conn.query(`UPDATE PurchaseOrder SET Status = 'Received' WHERE PurchaseOrderID = :id`, { id: req.params.id });

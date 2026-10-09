@@ -2,12 +2,15 @@
 import {
   Search,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Box,
   Sliders,
   Package,
   Trash2,
   ShoppingCart,
   RefreshCw,
+  Eye,
 } from "lucide-react";
 import ConfirmPOModal from "./ConfirmPOModal";
 import CustomizeRestockModal from "./CustomizeRestockModal";
@@ -15,12 +18,47 @@ import CustomizeSingleItemModal from "./CustomizeSingleItemModal";
 import { apiRequest } from "./api";
 import "./Restocking.css";
 
+const HISTORY_PAGE_SIZE = 6;
+
+function formatPeso(amount) {
+  return `₱ ${Number(amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function getPaginationGroup(currentPage, totalPages, maxVisible = 6) {
+  let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  const pages = [];
+  for (let page = start; page <= end; page += 1) {
+    pages.push(page);
+  }
+  return pages;
+}
+
+function displayPurchaseOrderStatus(status) {
+  if (status === "Received") return "Received";
+  if (status === "Cancelled") return "Cancelled";
+  return "Sent";
+}
+
+function canReceivePurchaseOrder(status) {
+  return status === "Approved" || status === "Sent";
+}
+
 export default function Restocking() {
   const [activeTab, setActiveTab] = useState("restocking");
 
   const [recommendations, setRecommendations] = useState([]);
+  const [purchaseOrderHistory, setPurchaseOrderHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [historyLoadError, setHistoryLoadError] = useState("");
   const [actionError, setActionError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -40,6 +78,14 @@ export default function Restocking() {
   const [savedPoId, setSavedPoId] = useState(null); // once saved as a draft/created on the backend
   const [isSavingDraft, setIsSavingDraft] = useState(false);
 
+  const [historyPage, setHistoryPage] = useState(1);
+  const [viewingPurchaseOrderId, setViewingPurchaseOrderId] = useState(null);
+  const [viewPurchaseOrder, setViewPurchaseOrder] = useState(null);
+  const [isViewLoading, setIsViewLoading] = useState(false);
+  const [isReceiving, setIsReceiving] = useState(false);
+  const [receiveWarehouseId, setReceiveWarehouseId] = useState("");
+  const [warehouses, setWarehouses] = useState([]);
+
   const loadRecommendations = () => {
     setIsLoading(true);
     apiRequest("/restocking")
@@ -51,8 +97,20 @@ export default function Restocking() {
       .finally(() => setIsLoading(false));
   };
 
+  const loadPurchaseOrderHistory = () => {
+    setIsHistoryLoading(true);
+    apiRequest("/purchase-orders")
+      .then((data) => {
+        setPurchaseOrderHistory(data);
+        setHistoryLoadError("");
+      })
+      .catch((err) => setHistoryLoadError(err.message || "Failed to load purchase order history."))
+      .finally(() => setIsHistoryLoading(false));
+  };
+
   useEffect(() => {
     loadRecommendations();
+    loadPurchaseOrderHistory();
   }, []);
 
   const suppliers = useMemo(
@@ -69,6 +127,26 @@ export default function Restocking() {
       return matchesSearch && matchesSupplier && matchesPriority;
     });
   }, [recommendations, searchQuery, selectedSupplier, selectedPriority]);
+
+  const historyTotalPages = Math.max(1, Math.ceil(purchaseOrderHistory.length / HISTORY_PAGE_SIZE));
+  const historyCurrentPage = Math.min(historyPage, historyTotalPages);
+  const paginatedPurchaseOrderHistory = useMemo(() => {
+    return purchaseOrderHistory.slice(
+      (historyCurrentPage - 1) * HISTORY_PAGE_SIZE,
+      historyCurrentPage * HISTORY_PAGE_SIZE
+    );
+  }, [purchaseOrderHistory, historyCurrentPage]);
+
+  const goToHistoryPage = (page) => {
+    if (page < 1 || page > historyTotalPages) return;
+    setHistoryPage(page);
+  };
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
 
   const criticalCount = recommendations.filter((r) => r.priority === "Critical").length;
   const estimatedCost = recommendations.reduce((sum, r) => sum + r.suggestedQty * Number(r.costPrice || 0), 0);
@@ -160,11 +238,6 @@ export default function Restocking() {
 
   // ---- Purchase Order tab actions ----
 
-  const poItemsForCustomize = useMemo(() => {
-    if (!poDraft) return [];
-    return recommendations.filter((r) => poDraft.restockIds.includes(r.restockId));
-  }, [poDraft, recommendations]);
-
   const poTotals = useMemo(() => {
     if (!poDraft) return { subtotal: 0, totalQty: 0 };
     const subtotal = poDraft.items.reduce((sum, it) => sum + it.qty * it.unitCost, 0);
@@ -191,6 +264,7 @@ export default function Restocking() {
       });
       setSavedPoId(result.id);
       loadRecommendations();
+      loadPurchaseOrderHistory();
       setSelectedRows([]);
       return result.id;
     } catch (err) {
@@ -216,6 +290,7 @@ export default function Restocking() {
       id = await saveDraft();
     }
     await apiRequest(`/purchase-orders/${id}/confirm`, { method: "PUT" });
+    loadPurchaseOrderHistory();
     setIsConfirmModalOpen(false);
     setPoDraft(null);
     setSavedPoId(null);
@@ -229,6 +304,7 @@ export default function Restocking() {
       if (!confirmed) return;
       try {
         await apiRequest(`/purchase-orders/${savedPoId}/cancel`, { method: "PUT" });
+        loadPurchaseOrderHistory();
       } catch (err) {
         setActionError(err.message || "Failed to cancel purchase order.");
         return;
@@ -239,12 +315,68 @@ export default function Restocking() {
     setActiveTab("restocking");
   };
 
+  const handleViewPurchaseOrder = async (purchaseOrderId) => {
+    setActionError("");
+    setViewingPurchaseOrderId(purchaseOrderId);
+    setIsViewLoading(true);
+    try {
+      const [poDetails, warehouseRows] = await Promise.all([
+        apiRequest(`/purchase-orders/${purchaseOrderId}`),
+        apiRequest("/warehouses"),
+      ]);
+      const activeWarehouses = warehouseRows.filter(
+        (warehouse) => String(warehouse.status || "Active") === "Active"
+      );
+      setViewPurchaseOrder(poDetails);
+      setWarehouses(activeWarehouses);
+      setReceiveWarehouseId(activeWarehouses[0]?.id || "");
+    } catch (err) {
+      setActionError(err.message || "Failed to load purchase order details.");
+    } finally {
+      setIsViewLoading(false);
+    }
+  };
+
+  const closeViewPurchaseOrder = () => {
+    setViewingPurchaseOrderId(null);
+    setViewPurchaseOrder(null);
+    setReceiveWarehouseId("");
+    setWarehouses([]);
+  };
+
+  const handleReceivePurchaseOrder = async () => {
+    if (!viewPurchaseOrder) return;
+    if (!receiveWarehouseId) {
+      setActionError("Please select a warehouse before receiving this purchase order.");
+      return;
+    }
+
+    const poId = viewPurchaseOrder.PurchaseOrderID;
+    setIsReceiving(true);
+    setActionError("");
+    try {
+      await apiRequest(`/purchase-orders/${poId}/receive`, {
+        method: "PUT",
+        body: JSON.stringify({ warehouseId: receiveWarehouseId }),
+      });
+      setViewPurchaseOrder((prev) => (prev ? { ...prev, Status: "Received" } : prev));
+      loadPurchaseOrderHistory();
+      loadRecommendations();
+      alert("Purchase order marked as received and inventory was updated.");
+    } catch (err) {
+      setActionError(err.message || "Failed to receive purchase order.");
+    } finally {
+      setIsReceiving(false);
+    }
+  };
+
   return (
     <div className="restocking-page">
       <div className="restocking-inner">
         <h1 className="restocking-title">Restocking Assistant</h1>
 
         {loadError && <p style={{ color: "#dc2626", fontWeight: 600 }}>{loadError}</p>}
+        {historyLoadError && <p style={{ color: "#dc2626", fontWeight: 600 }}>{historyLoadError}</p>}
         {actionError && <p style={{ color: "#dc2626", fontWeight: 600 }}>{actionError}</p>}
 
         {/* Metric Cards */}
@@ -281,6 +413,12 @@ export default function Restocking() {
               title={!poDraft ? "Select items in Restocking first to build a purchase order" : ""}
             >
               Purchase Order
+            </button>
+            <button
+              className={`restocking-tab ${activeTab === "purchaseOrderHistory" ? "active" : ""}`}
+              onClick={() => setActiveTab("purchaseOrderHistory")}
+            >
+              Purchase Order History
             </button>
           </div>
 
@@ -357,6 +495,7 @@ export default function Restocking() {
                     </th>
                     <th>Restock ID</th>
                     <th>Product ID</th>
+                    <th>Product Name</th>
                     <th>Current Stock</th>
                     <th>Reorder Level</th>
                     <th>Suggested Qty</th>
@@ -367,11 +506,11 @@ export default function Restocking() {
                 </thead>
                 <tbody>
                   {isLoading && (
-                    <tr><td colSpan={9} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
+                    <tr><td colSpan={10} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
                   )}
                   {!isLoading && filteredData.length === 0 && (
                     <tr>
-                      <td colSpan={9} style={{ textAlign: "center", padding: 24 }}>
+                      <td colSpan={10} style={{ textAlign: "center", padding: 24 }}>
                         No open recommendations. Click "Generate Recommendations" to scan for low stock.
                       </td>
                     </tr>
@@ -391,6 +530,7 @@ export default function Restocking() {
                           </td>
                           <td>{item.restockId}</td>
                           <td>{item.productId}</td>
+                          <td>{item.productName || "—"}</td>
                           <td>{item.currentStock}</td>
                           <td>{item.reorderLevel}</td>
                           <td>{item.suggestedQty}</td>
@@ -434,7 +574,116 @@ export default function Restocking() {
           </>
         )}
 
-        {/* TAB 2: PURCHASE ORDER VIEW */}
+        {/* TAB 2: PURCHASE ORDER HISTORY */}
+        {activeTab === "purchaseOrderHistory" && (
+          <>
+            <div className="restocking-table-wrap">
+              <table className="restocking-table">
+                <thead>
+                  <tr>
+                    <th>Purchase Order ID</th>
+                    <th>Supplier Name</th>
+                    <th>Date</th>
+                    <th>Product Name</th>
+                    <th>Qty</th>
+                    <th>Total</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isHistoryLoading && (
+                    <tr><td colSpan={8} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
+                  )}
+
+                  {!isHistoryLoading && paginatedPurchaseOrderHistory.length === 0 && (
+                    <tr>
+                      <td colSpan={8} style={{ textAlign: "center", padding: 24 }}>
+                        No purchase order history yet.
+                      </td>
+                    </tr>
+                  )}
+
+                  {!isHistoryLoading &&
+                    paginatedPurchaseOrderHistory.map((po) => {
+                      const displayStatus = displayPurchaseOrderStatus(po.status);
+                      const statusClass = displayStatus.toLowerCase();
+                      return (
+                        <tr key={po.id}>
+                          <td>{po.poNo || po.id}</td>
+                          <td>{po.supplier || "—"}</td>
+                          <td>{po.orderDate ? new Date(po.orderDate).toLocaleDateString() : "—"}</td>
+                          <td>{po.productNames || "—"}</td>
+                          <td>{Number(po.totalQty || 0)}</td>
+                          <td>{formatPeso(po.totalAmount)}</td>
+                          <td>
+                            <span className={`po-history-status-pill ${statusClass}`}>{displayStatus}</span>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="po-history-view-btn"
+                              onClick={() => handleViewPurchaseOrder(po.id)}
+                            >
+                              <Eye size={14} /> View
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            {!isHistoryLoading && (
+              <div className="users-pagination" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <button
+                  type="button"
+                  className="page-btn"
+                  onClick={() => goToHistoryPage(historyCurrentPage - 1)}
+                  disabled={historyCurrentPage === 1}
+                  aria-label="Previous page"
+                  style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
+                >
+                  <ChevronLeft size={16} />
+                </button>
+
+                {getPaginationGroup(historyCurrentPage, historyTotalPages, 6).map((page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    className={`page-btn ${page === historyCurrentPage ? "active" : ""}`}
+                    onClick={() => goToHistoryPage(page)}
+                    style={{
+                      borderRadius: "8px",
+                      padding: "8px 14px",
+                      border: "1px solid #d1d5db",
+                      background: page === historyCurrentPage ? "#1e3a8a" : "#fff",
+                      color: page === historyCurrentPage ? "#fff" : "#1f2937",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  className="page-btn"
+                  onClick={() => goToHistoryPage(historyCurrentPage + 1)}
+                  disabled={historyCurrentPage === historyTotalPages}
+                  aria-label="Next page"
+                  style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* TAB 3: PURCHASE ORDER VIEW */}
         {activeTab === "purchaseOrder" && poDraft && (
           <div className="po-container">
             {/* Left Card: Form Inputs & Item Details */}
@@ -576,6 +825,90 @@ export default function Restocking() {
         selectedItem={selectedItemForCustomize}
         onSaved={loadRecommendations}
       />
+
+      {viewingPurchaseOrderId && (
+        <div className="po-history-modal-overlay" onClick={closeViewPurchaseOrder}>
+          <div className="po-history-modal-card" onClick={(event) => event.stopPropagation()}>
+            <div className="po-history-modal-header">
+              <h3>Purchase Order Details</h3>
+              <button type="button" className="po-history-close-btn" onClick={closeViewPurchaseOrder}>
+                Close
+              </button>
+            </div>
+
+            {isViewLoading && <p className="po-history-placeholder">Loading purchase order…</p>}
+
+            {!isViewLoading && viewPurchaseOrder && (
+              <>
+                <div className="po-history-details-grid">
+                  <div><strong>Purchase Order ID:</strong> {viewPurchaseOrder.PONo || viewPurchaseOrder.PurchaseOrderID}</div>
+                  <div><strong>Supplier Name:</strong> {viewPurchaseOrder.SupplierName || "—"}</div>
+                  <div><strong>Date:</strong> {viewPurchaseOrder.OrderDate ? new Date(viewPurchaseOrder.OrderDate).toLocaleString() : "—"}</div>
+                  <div>
+                    <strong>Status:</strong>{" "}
+                    <span
+                      className={`po-history-status-pill ${displayPurchaseOrderStatus(viewPurchaseOrder.Status).toLowerCase()}`}
+                    >
+                      {displayPurchaseOrderStatus(viewPurchaseOrder.Status)}
+                    </span>
+                  </div>
+                  <div><strong>Total:</strong> {formatPeso(viewPurchaseOrder.TotalAmount)}</div>
+                </div>
+
+                <div className="po-history-items-wrap">
+                  <table className="po-history-items-table">
+                    <thead>
+                      <tr>
+                        <th>Product Name</th>
+                        <th>Qty</th>
+                        <th>Unit Cost</th>
+                        <th>Subtotal</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(viewPurchaseOrder.items || []).map((item, index) => (
+                        <tr key={`${item.productId}-${index}`}>
+                          <td>{item.productName}</td>
+                          <td>{item.qty}</td>
+                          <td>{formatPeso(item.costPrice)}</td>
+                          <td>{formatPeso(item.subtotal)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {canReceivePurchaseOrder(viewPurchaseOrder.Status) && (
+                  <div className="po-history-receive-row">
+                    <label htmlFor="receive-warehouse-select">Receive to Warehouse</label>
+                    <select
+                      id="receive-warehouse-select"
+                      value={receiveWarehouseId}
+                      onChange={(event) => setReceiveWarehouseId(event.target.value)}
+                      className="po-history-warehouse-select"
+                    >
+                      {warehouses.length === 0 && <option value="">No active warehouses</option>}
+                      {warehouses.map((warehouse) => (
+                        <option key={warehouse.id} value={warehouse.id}>
+                          {warehouse.name} ({warehouse.id})
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      className="po-history-receive-btn"
+                      onClick={handleReceivePurchaseOrder}
+                      disabled={isReceiving || !receiveWarehouseId || warehouses.length === 0}
+                    >
+                      {isReceiving ? "Receiving…" : "Mark as Received"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

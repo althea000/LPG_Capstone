@@ -23,7 +23,7 @@ const discountOptions = [
   { label: "Member (10%)", value: 0.1 },
 ];
 
-const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
+const paymentMethods = ["Cash", "GCash", "Cash on Delivery", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Pickup", "Delivery"];
 const vehicleTypes = ["Motor", "Tricycle", "Truck"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
