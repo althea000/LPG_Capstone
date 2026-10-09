@@ -54,7 +54,10 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    const normalizedReferenceNo = referenceNo.trim();
+
     if (!warehouseId) return setError("Please select a warehouse.");
+    if (!normalizedReferenceNo) return setError("Reference ID is required.");
     if (!validItems.length) return setError("Add at least one item with a product and quantity.");
 
     setIsSubmitting(true);
@@ -64,10 +67,10 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
         method: "POST",
         body: JSON.stringify({
           warehouseId,
-          referenceNo: referenceNo || null,
+          referenceNo: normalizedReferenceNo,
           remarks: remarks || null,
           items: validItems.map((it) => ({
-            productId: Number(it.productId),
+            productId: String(it.productId).trim(),
             quantity: Number(it.quantity),
           })),
         }),
@@ -101,12 +104,12 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
           </div>
 
           <div className="form-row">
-            <span className="form-label">Invoice/Ref No</span>
+            <span className="form-label">Reference ID</span>
             <span className="form-colon">:</span>
             <input
               type="text"
               className="form-input"
-              placeholder="INV-001"
+              placeholder="Reference ID"
               value={referenceNo}
               onChange={(e) => setReferenceNo(e.target.value)}
             />

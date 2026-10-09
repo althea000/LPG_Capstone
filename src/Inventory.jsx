@@ -205,6 +205,7 @@ export default function Inventory() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedWarehouse, setSelectedWarehouse] = useState("All Warehouse");
   const [selectedStatus, setSelectedStatus] = useState("Inventory Status");
+  const [selectedTransactionType, setSelectedTransactionType] = useState("All Types");
 
   const [inventory, setInventory] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -288,14 +289,45 @@ export default function Inventory() {
   };
 
   // Transactions Pagination Calculations
-  const transactionsTotalPages = Math.max(1, Math.ceil(transactions.length / PAGE_SIZE));
+  const transactionTypeOptions = useMemo(() => {
+    const options = ["All Types"];
+    const dbTypes = Array.from(new Set(transactions.map((tx) => tx.type).filter(Boolean)));
+    const hasTransfer = transactions.some(
+      (tx) => String(tx.reason || "").toLowerCase() === "transfer"
+    );
+
+    if (dbTypes.includes("Stock In")) options.push("Stock In");
+    if (dbTypes.includes("Stock Out")) options.push("Stock Out");
+
+    for (const type of dbTypes) {
+      if (type !== "Stock In" && type !== "Stock Out") {
+        options.push(type);
+      }
+    }
+
+    if (hasTransfer) options.push("Transfer");
+    return options;
+  }, [transactions]);
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((tx) => {
+      if (selectedTransactionType === "All Types") return true;
+
+      const isTransfer = String(tx.reason || "").toLowerCase() === "transfer";
+      if (selectedTransactionType === "Transfer") return isTransfer;
+
+      return tx.type === selectedTransactionType && !isTransfer;
+    });
+  }, [transactions, selectedTransactionType]);
+
+  const transactionsTotalPages = Math.max(1, Math.ceil(filteredTransactions.length / PAGE_SIZE));
   const transactionsCurrentPage = Math.min(transactionsPage, transactionsTotalPages);
   const paginatedTransactions = useMemo(() => {
-    return transactions.slice(
+    return filteredTransactions.slice(
       (transactionsCurrentPage - 1) * PAGE_SIZE,
       transactionsCurrentPage * PAGE_SIZE
     );
-  }, [transactions, transactionsCurrentPage]);
+  }, [filteredTransactions, transactionsCurrentPage]);
 
   const goToTransactionsPage = (p) => {
     if (p < 1 || p > transactionsTotalPages) return;
@@ -535,6 +567,26 @@ export default function Inventory() {
           </div>
         )}
 
+        {activeTab === "transactions" && (
+          <div className="inventory-toolbar">
+            <div className="inventory-select-wrap">
+              <select
+                className="inventory-select"
+                value={selectedTransactionType}
+                onChange={(e) => {
+                  setSelectedTransactionType(e.target.value);
+                  setTransactionsPage(1);
+                }}
+              >
+                {transactionTypeOptions.map((typeOption) => (
+                  <option key={typeOption} value={typeOption}>{typeOption}</option>
+                ))}
+              </select>
+              <ChevronDown size={16} className="inventory-select-icon" />
+            </div>
+          </div>
+        )}
+
         {/* Table View Conditional Rendering */}
         <div className="inventory-table-wrap">
           {activeTab === "inventory" ? (
@@ -672,7 +724,7 @@ export default function Inventory() {
                       <td>{tx.productId}</td>
                       <td>{tx.productName}</td>
                       <td>{tx.warehouse}</td>
-                      <td>{tx.type}</td>
+                      <td>{String(tx.reason || "").toLowerCase() === "transfer" ? "Transfer" : tx.type}</td>
                       <td>{tx.quantity}</td>
                       <td>{tx.reference || "—"}</td>
                       <td>{new Date(tx.date).toLocaleString()}</td>

@@ -144,12 +144,12 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
 
   return (
     <div className="modal-overlay" onClick={resetAndClose}>
-      <div className="modal-container" style={{ maxWidth: 980 }} onClick={(e) => e.stopPropagation()}>
+      <div className="modal-container" onClick={(e) => e.stopPropagation()}>
         <h2 className="modal-title">Warehouse Transfer</h2>
 
         {error && <p style={{ color: "#dc2626", fontWeight: 600, marginTop: -8 }}>{error}</p>}
 
-        <div className="form-grid" style={{ marginBottom: 14 }}>
+        <div className="form-grid">
           <div className="form-row">
             <span className="form-label">From Warehouse</span>
             <span className="form-colon">:</span>
@@ -261,15 +261,15 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
           </table>
         </div>
 
-        <div className="modal-actions" style={{ marginTop: 16 }}>
+        <div className="modal-actions">
           <button type="button" className="btn-cancel" onClick={resetAndClose}>Close</button>
           <button type="button" className="btn-approved" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? "Saving…" : "Create Transfer"}
           </button>
         </div>
 
-        <div style={{ marginTop: 20 }}>
-          <h3 className="items-title" style={{ marginBottom: 10 }}>Recent Transfers</h3>
+        <div className="modal-summary">
+          <h3 className="items-title">Recent Transfers</h3>
           <div className="modal-table-wrap" style={{ maxHeight: 220, overflowY: "auto" }}>
             <table className="modal-table">
               <thead>

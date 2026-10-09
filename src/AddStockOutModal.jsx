@@ -52,7 +52,10 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
   };
 
   const handleSubmit = async () => {
+    const normalizedReferenceNo = referenceNo.trim();
+
     if (!warehouseId) return setError("Please select a warehouse.");
+    if (!normalizedReferenceNo) return setError("Reference ID is required.");
     if (!validItems.length) return setError("Add at least one item with a product and quantity.");
 
     for (const it of validItems) {
@@ -69,11 +72,11 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
         method: "POST",
         body: JSON.stringify({
           warehouseId,
-          referenceNo: referenceNo || null,
+          referenceNo: normalizedReferenceNo,
           reason,
           remarks: remarks || null,
           items: validItems.map((it) => ({
-            productId: Number(it.productId),
+            productId: String(it.productId).trim(),
             quantity: Number(it.quantity),
           })),
         }),

@@ -1,4 +1,5 @@
 ﻿const router = require("express").Router();
+const crypto = require("crypto");
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -35,6 +36,114 @@ async function nextId(conn, table, column, prefix, pad = 3) {
 }
 
 router.use(authenticate);
+
+function normalizeReferenceNo(referenceNo) {
+  const normalized = String(referenceNo || "").trim();
+  if (!normalized) {
+    throw new ApiError(400, "referenceNo is required.");
+  }
+  if (normalized.length > 50) {
+    throw new ApiError(400, "referenceNo must not exceed 50 characters.");
+  }
+  return normalized;
+}
+
+function normalizeRemarks(remarks) {
+  const normalized = String(remarks || "").trim();
+  return normalized || null;
+}
+
+function normalizeMovementItems(items) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new ApiError(400, "At least one item is required.");
+  }
+
+  const quantityByProduct = new Map();
+  for (const rawItem of items) {
+    const productId = String(rawItem?.productId || "").trim();
+    const quantity = Number(rawItem?.quantity);
+
+    if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
+      throw new ApiError(400, "Each item requires a valid productId and a positive whole-number quantity.");
+    }
+
+    quantityByProduct.set(productId, (quantityByProduct.get(productId) || 0) + quantity);
+  }
+
+  return Array.from(quantityByProduct.entries()).map(([productId, quantity]) => ({
+    productId,
+    quantity,
+  }));
+}
+
+async function validateWarehouseAccess(conn, warehouseId, companyId) {
+  const [rows] = await conn.query(
+    `SELECT WarehouseID AS warehouseId
+     FROM Warehouse
+     WHERE WarehouseID = :warehouseId AND CompanyID = :companyId
+     LIMIT 1`,
+    { warehouseId, companyId }
+  );
+  if (!rows[0]) {
+    throw new ApiError(400, "Invalid warehouse selection.");
+  }
+}
+
+async function validateProductsExist(conn, productIds) {
+  for (const productId of productIds) {
+    const [rows] = await conn.query(
+      `SELECT ProductID AS productId FROM Product WHERE ProductID = :productId LIMIT 1`,
+      { productId }
+    );
+    if (!rows[0]) {
+      throw new ApiError(400, `Invalid productId: ${productId}.`);
+    }
+  }
+}
+
+async function acquireReferenceLock(conn, lockKey) {
+  const [[row]] = await conn.query(`SELECT GET_LOCK(:lockKey, 5) AS acquired`, { lockKey });
+  if (Number(row?.acquired) !== 1) {
+    throw new ApiError(409, "Another request with the same reference is already being processed. Please retry.");
+  }
+}
+
+async function releaseReferenceLock(conn, lockKey) {
+  try {
+    await conn.query(`SELECT RELEASE_LOCK(:lockKey)`, { lockKey });
+  } catch {
+    // no-op
+  }
+}
+
+function buildReferenceLockKey(transactionType, warehouseId, referenceNo) {
+  const digest = crypto
+    .createHash("sha1")
+    .update(`${transactionType}|${warehouseId}|${referenceNo}`)
+    .digest("hex");
+  return `inventory:${digest}`;
+}
+
+async function ensureReferenceNotAlreadyUsed(conn, { warehouseId, referenceNo, transactionType }) {
+  const [rows] = await conn.query(
+    `SELECT t.TransactionID AS transactionId
+     FROM InventoryTransaction t
+     JOIN Inventory i ON i.InventoryID = t.InventoryID
+     WHERE i.WarehouseID = :warehouseId
+       AND t.TransactionType = :transactionType
+       AND t.ReferenceNo = :referenceNo
+       AND t.Reason <> 'Transfer'
+     LIMIT 1`,
+    { warehouseId, referenceNo, transactionType }
+  );
+
+  if (rows[0]) {
+    throw new ApiError(
+      409,
+      `${transactionType} with referenceNo "${referenceNo}" already exists for this warehouse.`
+    );
+  }
+}
 
 function statusFor(stockOnHand, reorderLevel) {
   const currentStock = Number(stockOnHand || 0);
@@ -141,7 +250,7 @@ router.get(
     const [rows] = await pool.query(`
       SELECT t.TransactionID AS transactionId, p.ProductID AS productId, p.ProductName AS productName,
              w.WarehouseName AS warehouse, t.TransactionType AS type, t.Quantity AS quantity,
-             t.ReferenceNo AS reference, t.TransactionDate AS date,
+             t.Reason AS reason, t.ReferenceNo AS reference, t.TransactionDate AS date,
              CONCAT(u.FirstName, ' ', u.LastName) AS user
       FROM InventoryTransaction t
       JOIN Inventory i ON i.InventoryID = t.InventoryID
@@ -178,10 +287,31 @@ router.post(
     if (!warehouseId || !Array.isArray(items) || !items.length) {
       throw new ApiError(400, "warehouseId and at least one item are required.");
     }
+
+    const normalizedReferenceNo = normalizeReferenceNo(referenceNo);
+    const normalizedRemarks = normalizeRemarks(remarks);
+    const normalizedItems = normalizeMovementItems(items);
+
     const conn = await pool.getConnection();
+    const lockKey = buildReferenceLockKey("stock-in", warehouseId, normalizedReferenceNo.toUpperCase());
+    let txStarted = false;
     try {
+      await acquireReferenceLock(conn, lockKey);
       await conn.beginTransaction();
-      for (const item of items) {
+      txStarted = true;
+
+      await validateWarehouseAccess(conn, warehouseId, req.user.companyId);
+      await validateProductsExist(
+        conn,
+        normalizedItems.map((item) => item.productId)
+      );
+      await ensureReferenceNotAlreadyUsed(conn, {
+        warehouseId,
+        referenceNo: normalizedReferenceNo,
+        transactionType: "Stock In",
+      });
+
+      for (const item of normalizedItems) {
         const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
         await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :id`, {
@@ -196,17 +326,20 @@ router.post(
             invId: inv.InventoryID,
             userId: req.user.userId,
             qty: item.quantity,
-            ref: referenceNo || null,
-            remarks: remarks || null,
+            ref: normalizedReferenceNo,
+            remarks: normalizedRemarks,
           }
         );
       }
       await conn.commit();
       res.status(201).json({ message: "Stock in recorded." });
     } catch (err) {
-      await conn.rollback();
+      if (txStarted) {
+        await conn.rollback();
+      }
       throw err;
     } finally {
+      await releaseReferenceLock(conn, lockKey);
       conn.release();
     }
   })
@@ -220,10 +353,32 @@ router.post(
     if (!warehouseId || !Array.isArray(items) || !items.length) {
       throw new ApiError(400, "warehouseId and at least one item are required.");
     }
+
+    const normalizedReferenceNo = normalizeReferenceNo(referenceNo);
+    const normalizedReason = String(reason || "Damaged").trim() || "Damaged";
+    const normalizedRemarks = normalizeRemarks(remarks);
+    const normalizedItems = normalizeMovementItems(items);
+
     const conn = await pool.getConnection();
+    const lockKey = buildReferenceLockKey("stock-out", warehouseId, normalizedReferenceNo.toUpperCase());
+    let txStarted = false;
     try {
+      await acquireReferenceLock(conn, lockKey);
       await conn.beginTransaction();
-      for (const item of items) {
+      txStarted = true;
+
+      await validateWarehouseAccess(conn, warehouseId, req.user.companyId);
+      await validateProductsExist(
+        conn,
+        normalizedItems.map((item) => item.productId)
+      );
+      await ensureReferenceNotAlreadyUsed(conn, {
+        warehouseId,
+        referenceNo: normalizedReferenceNo,
+        transactionType: "Stock Out",
+      });
+
+      for (const item of normalizedItems) {
         const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
         if (inv.StockOnHand < item.quantity) {
@@ -241,18 +396,21 @@ router.post(
             invId: inv.InventoryID,
             userId: req.user.userId,
             qty: item.quantity,
-            reason: reason || "Damaged",
-            ref: referenceNo || null,
-            remarks: remarks || null,
+            reason: normalizedReason,
+            ref: normalizedReferenceNo,
+            remarks: normalizedRemarks,
           }
         );
       }
       await conn.commit();
       res.status(201).json({ message: "Stock out recorded." });
     } catch (err) {
-      await conn.rollback();
+      if (txStarted) {
+        await conn.rollback();
+      }
       throw err;
     } finally {
+      await releaseReferenceLock(conn, lockKey);
       conn.release();
     }
   })
