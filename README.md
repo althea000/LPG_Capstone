@@ -1,4 +1,4 @@
-git clone -b for_test https://github.com/MarzanoMiles/LPG_Capstone.git 
+git clone -b experiment-test https://github.com/MarzanoMiles/LPG_Capstone.git 
 
 cd GasTrack-CAPSTONE
 npm install

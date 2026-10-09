@@ -257,7 +257,7 @@ export default function Settings() {
         </div>
       </div>
 
-    {/* ─── FINANCIAL & TAX RULES ─── */}
+   {/* ─── FINANCIAL & TAX RULES ─── */}
       <div className="settings-card">
         <h2 className="card-title">Financial & Tax Rules</h2>
         <div className="grid-2-col">
@@ -291,7 +291,7 @@ export default function Settings() {
               <label style={{ display: "block", fontWeight: 600, marginBottom: "8px" }}>Discounts</label>
               <div className="checkbox-group" style={{ gap: "8px" }}>
                 
-                {/* Default or dynamic discount list */}
+                {/* Discount list */}
                 {(
                   settings.discounts || [
                     { label: "No Discount", value: 0 },
@@ -327,7 +327,7 @@ export default function Settings() {
                       {disc.label}
                     </label>
 
-                    {/* Remove (X) Button for ALL Options */}
+                    {/* Remove (X) Button */}
                     <button
                       type="button"
                       aria-label={`Remove ${disc.label}`}
@@ -374,27 +374,7 @@ export default function Settings() {
                   fontSize: "0.85rem",
                   textAlign: "left",
                 }}
-                onClick={() => {
-                  const label = prompt("Enter discount name (e.g., Student, Promo):");
-                  if (!label) return;
-                  const percentStr = prompt("Enter discount percentage (e.g., 15 for 15% or 0 for no discount):");
-                  const percent = parseFloat(percentStr);
-                  if (isNaN(percent) || percent < 0 || percent > 100) {
-                    alert("Invalid percentage entered.");
-                    return;
-                  }
-                  const currentDiscounts = settings.discounts || [
-                    { label: "No Discount", value: 0 },
-                    { label: "Senior/PWD (5%)", value: 0.05 },
-                    { label: "Member (10%)", value: 0.1 },
-                  ];
-                  const newOptionLabel = percent > 0 ? `${label} (${percent}%)` : label;
-                  const updated = [
-                    ...currentDiscounts,
-                    { label: newOptionLabel, value: percent / 100, enabled: true },
-                  ];
-                  updateField("discounts", updated);
-                }}
+                onClick={() => updateField("showDiscountModal", true)}
               >
                 + Add Option
               </button>
@@ -465,6 +445,143 @@ export default function Settings() {
             {savingSection === "tax" ? "Saving…" : "Save"}
           </button>
         </div>
+
+        {/* ─── ADD DISCOUNT MODAL POPUP ─── */}
+        {settings.showDiscountModal && (
+          <div
+            style={{
+              position: "fixed",
+              inset: 0,
+              backgroundColor: "rgba(0, 0, 0, 0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              zIndex: 1000,
+            }}
+          >
+            <div
+              style={{
+                background: "#ffffff",
+                borderRadius: "20px",
+                width: "100%",
+                maxWidth: "420px",
+                padding: "32px 28px 24px",
+                boxShadow: "0 10px 25px rgba(0, 0, 0, 0.15)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "20px",
+              }}
+            >
+              <h2
+                style={{
+                  fontSize: "22px",
+                  fontWeight: 800,
+                  color: "#0f172a",
+                  margin: 0,
+                }}
+              >
+                Add Discount
+              </h2>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+                <div className="form-group">
+                  <label style={{ fontWeight: 600, fontSize: "14px", color: "#334155" }}>
+                    Discount Name
+                  </label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="e.g., Student, Promo"
+                    value={settings.newDiscountName || ""}
+                    onChange={(e) => updateField("newDiscountName", e.target.value)}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label style={{ fontWeight: 600, fontSize: "14px", color: "#334155" }}>
+                    Percentage (%)
+                  </label>
+                  <input
+                    type="number"
+                    className="form-control"
+                    placeholder="e.g., 15 (Enter 0 for no discount)"
+                    value={settings.newDiscountValue || ""}
+                    onChange={(e) => updateField("newDiscountValue", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Modal Buttons matching Payment Modal */}
+              <div
+                style={{
+                  display: "flex",
+                  gap: "12px",
+                  marginTop: "8px",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateField("showDiscountModal", false);
+                    updateField("newDiscountName", "");
+                    updateField("newDiscountValue", "");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "12px",
+                    borderRadius: "10px",
+                    border: "none",
+                    background: "#e2e8f0",
+                    color: "#0f172a",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = settings.newDiscountName?.trim();
+                    const percent = parseFloat(settings.newDiscountValue);
+                    if (!name || isNaN(percent) || percent < 0 || percent > 100) {
+                      alert("Please enter a valid discount name and percentage (0-100).");
+                      return;
+                    }
+                    const currentDiscounts = settings.discounts || [
+                      { label: "No Discount", value: 0 },
+                      { label: "Senior/PWD (5%)", value: 0.05 },
+                      { label: "Member (10%)", value: 0.1 },
+                    ];
+                    const label = percent > 0 ? `${name} (${percent}%)` : name;
+                    const updated = [
+                      ...currentDiscounts,
+                      { label, value: percent / 100, enabled: true },
+                    ];
+                    updateField("discounts", updated);
+                    updateField("showDiscountModal", false);
+                    updateField("newDiscountName", "");
+                    updateField("newDiscountValue", "");
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "12px",
+                    borderRadius: "10px",
+                    border: "none",
+                    background: "#1377ea",
+                    color: "#ffffff",
+                    fontWeight: 700,
+                    fontSize: "14px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Okay
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ─── RECEIPT AND POS OUTPUT ─── */}

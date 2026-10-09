@@ -1,5 +1,16 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { Search, ChevronDown, ShoppingCart, Wallet, Minus, Plus, X, PauseCircle } from "lucide-react";
+import {
+  Search,
+  ChevronDown,
+  ShoppingCart,
+  Wallet,
+  Minus,
+  Plus,
+  X,
+  PauseCircle,
+  UserPlus,
+  Truck,
+} from "lucide-react";
 import PaymentModal from "./PaymentModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
@@ -14,17 +25,16 @@ const discountOptions = [
 
 const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer"];
 const customerTypes = ["Walk-in", "Pickup", "Delivery"];
+const vehicleTypes = ["Motor", "Tricycle", "Truck"];
 const HELD_CARTS_KEY = "gastrack_held_carts";
 const DEFAULT_WAREHOUSE_OPTION = "All Warehouses";
-const PRODUCT_IMAGE_FALLBACK = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
 
 const resolveImageUrl = (product) => {
   if (!product) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
-  
+
   let url = product.ImageURL || product.imageUrl || product.Imageurl || product.imageURL;
   if (!url) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
 
-  // Fix doubled Vercel + Render URL if present
   if (url.includes("https://gastrack-backend-wtrs.onrender.com/")) {
     const parts = url.split("https://gastrack-backend-wtrs.onrender.com/");
     return "https://gastrack-backend-wtrs.onrender.com/" + parts[parts.length - 1];
@@ -41,7 +51,7 @@ const resolveImageUrl = (product) => {
 };
 
 function formatPeso(amount) {
-  return `\u20B1${amount.toFixed(2)}`;
+  return `\u20B1${(amount || 0).toFixed(2)}`;
 }
 
 function loadHeldCarts() {
@@ -57,7 +67,7 @@ function saveHeldCarts(carts) {
   try {
     localStorage.setItem(HELD_CARTS_KEY, JSON.stringify(carts));
   } catch {
-    /* storage unavailable — held carts just won't persist across reloads */
+    /* storage unavailable */
   }
 }
 
@@ -124,15 +134,11 @@ function CartItem({ item, onIncrement, onDecrement, onUpdateQuantity, onRemove }
   );
 }
 
-// ---------------------------------------------------------------------------
-// Held Carts modal — view / restore / discard carts put on hold
-// ---------------------------------------------------------------------------
-
 function HeldCartsModal({ isOpen, onClose, heldCarts, onRestore, onDiscard }) {
   if (!isOpen) return null;
   return (
     <div
-      style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}
+      style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 16 }}
       onClick={onClose}
     >
       <div
@@ -193,6 +199,785 @@ function HeldCartsModal({ isOpen, onClose, heldCarts, onRestore, onDiscard }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Customer Creation Modal
+// ---------------------------------------------------------------------------
+function AddCustomerModal({ isOpen, onClose, onCustomerCreated }) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [customerType, setCustomerType] = useState("Residential");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  if (!isOpen) return null;
+
+  const handleSave = async () => {
+    if (!name.trim() || !phone.trim()) {
+      setError("Customer name and phone are required.");
+      return;
+    }
+
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const response = await apiRequest("/customers", {
+        method: "POST",
+        body: JSON.stringify({
+          name: name.trim(),
+          phone: phone.trim(),
+          address: address.trim() || "N/A",
+          customerType,
+        }),
+      });
+
+      onCustomerCreated({
+        id: response.id || response.CustomerID || response._id,
+        customerName: name.trim(),
+        contactNumber: phone.trim(),
+        address: address.trim() || "N/A",
+        customerCategory: customerType,
+      });
+
+      setName("");
+      setPhone("");
+      setAddress("");
+      setCustomerType("Residential");
+      onClose();
+    } catch (err) {
+      setError(err.message || "Failed to save customer.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(17,24,39,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10000,
+        padding: 16,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "#fff",
+          borderRadius: 12,
+          padding: "24px 28px",
+          width: "100%",
+          maxWidth: 420,
+          boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <h3 style={{ fontSize: "1.1rem", fontWeight: 800, margin: 0, color: "#111827" }}>Add Customer</h3>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {error && (
+          <div style={{ background: "#fef2f2", color: "#dc2626", padding: "8px 12px", borderRadius: 6, fontSize: "0.8rem", marginBottom: 12, fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div>
+            <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+              Customer Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Name"
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+              Phone Number
+            </label>
+            <input
+              type="text"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="Phone Number"
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+              Address
+            </label>
+            <textarea
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Street, Brgy, City, Province, Zip Code"
+              rows={2}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem", resize: "none" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
+              Customer Type
+            </label>
+            <select
+              value={customerType}
+              onChange={(e) => setCustomerType(e.target.value)}
+              style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+            >
+              <option value="Residential">Residential</option>
+              <option value="Commercial">Commercial</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 18 }}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSubmitting}
+            style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: "#1d6bf3", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" }}
+          >
+            {isSubmitting ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pickup Details Modal
+// ---------------------------------------------------------------------------
+function PickupModal({ isOpen, onClose, onSave, initialData }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [error, setError] = useState("");
+
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [pickupDate, setPickupDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("");
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+
+  useEffect(() => {
+    if (initialData) {
+      setSelectedCustomer({
+        customerName: initialData.customerName || "",
+        contactNumber: initialData.contactNumber || "",
+        address: initialData.address || "",
+        customerCategory: initialData.customerCategory || "Residential",
+      });
+      setPickupDate(initialData.pickupDate || "");
+      setPickupTime(initialData.pickupTime || "");
+    } else {
+      resetForm();
+    }
+    setError("");
+  }, [isOpen, initialData]);
+
+  const resetForm = () => {
+    setSelectedCustomer(null);
+    setPickupDate("");
+    setPickupTime("");
+    setSearchQuery("");
+    setCustomerResults([]);
+  };
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setCustomerResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const data = await apiRequest(`/customers?search=${encodeURIComponent(searchQuery)}`);
+        setCustomerResults(Array.isArray(data) ? data : []);
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  if (!isOpen) return null;
+
+  const handleSelectCustomer = (cust) => {
+    setSelectedCustomer({
+      id: cust.id || cust._id || cust.CustomerID,
+      customerName: cust.name || cust.CustomerName || "",
+      contactNumber: cust.contactNumber || cust.phone || cust.ContactNo || "",
+      address: cust.address || cust.Address || "",
+      customerCategory: cust.customerType || cust.CustomerType || "Residential",
+    });
+    setCustomerResults([]);
+    setSearchQuery("");
+  };
+
+  const handleSaveModal = (e) => {
+    e.preventDefault();
+
+    if (!selectedCustomer) {
+      setError("Please search and select a customer.");
+      return;
+    }
+
+    if (!pickupDate || !pickupTime) {
+      setError("Please select both Pickup Date and Pickup Time.");
+      return;
+    }
+
+    const [hours, minutes] = pickupTime.split(":").map(Number);
+    const totalMinutes = hours * 60 + minutes;
+    if (totalMinutes < 8 * 60 || totalMinutes > 18 * 60) {
+      setError("Pickup time must be between 8:00 AM and 6:00 PM.");
+      return;
+    }
+
+    setError("");
+    onSave({
+      customerCategory: selectedCustomer.customerCategory,
+      customerName: selectedCustomer.customerName,
+      contactNumber: selectedCustomer.contactNumber,
+      address: selectedCustomer.address,
+      pickupDate,
+      pickupTime,
+    });
+  };
+
+  return (
+    <>
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(17,24,39,0.55)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+          padding: 16,
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 12,
+            padding: "24px 28px",
+            width: "100%",
+            maxWidth: 500,
+            boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 800, margin: 0, color: "#111827" }}>
+                Pickup Details
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowAddCustomerModal(true)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#1d6bf3",
+                  color: "#fff",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <UserPlus size={14} /> Add New Customer
+              </button>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
+              <X size={20} />
+            </button>
+          </div>
+
+          {error && (
+            <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 6, fontSize: "0.82rem", marginBottom: 14, fontWeight: 600 }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: "0.88rem", fontWeight: 700, color: "#374151", marginBottom: 10 }}>
+              Search Customer
+            </div>
+
+            <div style={{ position: "relative", marginBottom: 12 }}>
+              <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+              <input
+                type="text"
+                placeholder="Search Customer..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{ width: "100%", padding: "8px 12px 8px 34px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+              />
+            </div>
+
+            {searchQuery.trim() !== "" && (
+              <div style={{ maxHeight: 130, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 6, marginBottom: 12, background: "#f9fafb" }}>
+                {isSearching && <p style={{ fontSize: "0.8rem", padding: 8, color: "#6b7280", margin: 0 }}>Searching database...</p>}
+                {!isSearching && customerResults.length === 0 && (
+                  <p style={{ fontSize: "0.8rem", padding: 8, color: "#6b7280", margin: 0 }}>No matching customer found.</p>
+                )}
+                {customerResults.map((cust) => (
+                  <div
+                    key={cust.id || cust._id || cust.CustomerID}
+                    onClick={() => handleSelectCustomer(cust)}
+                    style={{ padding: "8px 12px", borderBottom: "1px solid #f3f4f6", cursor: "pointer", fontSize: "0.82rem" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "#eff6ff")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                  >
+                    <div style={{ fontWeight: 700, color: "#1f2937" }}>{cust.name || cust.CustomerName}</div>
+                    <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>{cust.contactNumber || cust.phone || cust.ContactNo}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px", marginBottom: 14 }}>
+              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", display: "block", marginBottom: 4 }}>
+                Selected Customer
+              </span>
+              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b", marginBottom: 2 }}>
+                {selectedCustomer?.customerName || <span style={{ color: "#94a3b8", fontWeight: 400 }}>No customer selected</span>}
+              </div>
+              <div style={{ fontSize: "0.82rem", color: "#475569" }}>
+                {selectedCustomer?.contactNumber || "—"}
+              </div>
+            </div>
+
+            <div>
+              <span style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 6 }}>
+                Pickup Schedule
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: "0.75rem", color: "#6b7280", display: "block", marginBottom: 2 }}>Date</label>
+                  <input
+                    type="date"
+                    min={new Date().toISOString().split("T")[0]}
+                    value={pickupDate}
+                    onChange={(e) => setPickupDate(e.target.value)}
+                    style={{ width: "100%", padding: "7px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.82rem" }}
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: "0.75rem", color: "#6b7280", display: "block", marginBottom: 2 }}>Time (8 AM – 6 PM)</label>
+                  <input
+                    type="time"
+                    value={pickupTime}
+                    onChange={(e) => setPickupTime(e.target.value)}
+                    style={{ width: "100%", padding: "7px 8px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.82rem" }}
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: "9px 18px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveModal}
+              style={{ padding: "9px 22px", borderRadius: 6, border: "none", background: "#1d6bf3", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}
+            >
+              Save Pickup Details
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <AddCustomerModal
+        isOpen={showAddCustomerModal}
+        onClose={() => setShowAddCustomerModal(false)}
+        onCustomerCreated={(newCust) => setSelectedCustomer(newCust)}
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Delivery Details Modal
+// ---------------------------------------------------------------------------
+function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const [customerResults, setCustomerResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [riders, setRiders] = useState([]);
+  const [isLoadingRiders, setIsLoadingRiders] = useState(false);
+  const [error, setError] = useState("");
+
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [address, setAddress] = useState("");
+  const [instructions, setInstructions] = useState("");
+  const [vehicleType, setVehicleType] = useState("Motor");
+  const [assignedRiderId, setAssignedRiderId] = useState("");
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const fetchRiders = async () => {
+      setIsLoadingRiders(true);
+      try {
+        const data = await apiRequest("/riders");
+        setRiders(Array.isArray(data) ? data : []);
+      } catch (err) {
+        setRiders([]);
+      } finally {
+        setIsLoadingRiders(false);
+      }
+    };
+
+    fetchRiders();
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (initialData) {
+      setSelectedCustomer({
+        id: initialData.customerId || "",
+        customerName: initialData.customerName || "",
+        contactNumber: initialData.contactNumber || "",
+      });
+      setAddress(initialData.address || "");
+      setInstructions(initialData.instructions || "");
+      setVehicleType(initialData.vehicleType || "Motor");
+      setAssignedRiderId(initialData.riderId || "");
+    } else {
+      resetForm();
+    }
+    setError("");
+  }, [isOpen, initialData]);
+
+  const resetForm = () => {
+    setSelectedCustomer(null);
+    setAddress("");
+    setInstructions("");
+    setVehicleType("Motor");
+    setAssignedRiderId("");
+    setSearchQuery("");
+    setCustomerResults([]);
+  };
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setCustomerResults([]);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const data = await apiRequest(`/customers?search=${encodeURIComponent(searchQuery)}`);
+        setCustomerResults(Array.isArray(data) ? data : []);
+      } catch {
+        setCustomerResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  if (!isOpen) return null;
+
+  const handleSelectCustomer = (cust) => {
+    setSelectedCustomer({
+      id: cust.id || cust._id || cust.CustomerID,
+      customerName: cust.name || cust.CustomerName || "",
+      contactNumber: cust.contactNumber || cust.phone || cust.ContactNo || "",
+    });
+    setAddress(cust.address || cust.Address || "");
+    setCustomerResults([]);
+    setSearchQuery("");
+  };
+
+  const handleSaveModal = (e) => {
+    e.preventDefault();
+
+    if (!selectedCustomer) {
+      setError("Please search and select a customer.");
+      return;
+    }
+
+    if (!address.trim()) {
+      setError("Complete Address is required.");
+      return;
+    }
+
+    setError("");
+
+    const assignedRider = riders.find((r) => String(r.id || r.UserID) === String(assignedRiderId));
+
+    onSave({
+      customerId: selectedCustomer.id,
+      customerName: selectedCustomer.customerName,
+      contactNumber: selectedCustomer.contactNumber,
+      address: address.trim(),
+      instructions: instructions.trim(),
+      vehicleType,
+      riderId: assignedRiderId,
+      riderName: assignedRider ? assignedRider.name || assignedRider.FullName : "Unassigned",
+    });
+  };
+
+  return (
+    <>
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(17,24,39,0.55)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          zIndex: 9999,
+          padding: 16,
+        }}
+        onClick={onClose}
+      >
+        <div
+          style={{
+            background: "#fff",
+            borderRadius: 12,
+            padding: "24px 28px",
+            width: "100%",
+            maxWidth: 520,
+            boxShadow: "0 20px 50px rgba(0,0,0,0.3)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Truck size={20} style={{ color: "#1d6bf3" }} />
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 800, margin: 0, color: "#111827" }}>
+                Delivery Details
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowAddCustomerModal(true)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "none",
+                  background: "#1d6bf3",
+                  color: "#fff",
+                  fontSize: "0.78rem",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <UserPlus size={14} /> Add New Customer
+              </button>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
+              <X size={20} />
+            </button>
+          </div>
+
+          {error && (
+            <div style={{ background: "#fef2f2", color: "#dc2626", padding: "10px 14px", borderRadius: 6, fontSize: "0.82rem", marginBottom: 14, fontWeight: 600 }}>
+              {error}
+            </div>
+          )}
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 18 }}>
+            <div>
+              <label style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>
+                Search Customer
+              </label>
+              <div style={{ position: "relative" }}>
+                <Search size={16} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#9ca3af" }} />
+                <input
+                  type="text"
+                  placeholder="Type name or phone number..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{ width: "100%", padding: "8px 12px 8px 34px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+                />
+              </div>
+
+              {searchQuery.trim() !== "" && (
+                <div style={{ maxHeight: 130, overflowY: "auto", border: "1px solid #e5e7eb", borderRadius: 6, marginTop: 4, background: "#f9fafb" }}>
+                  {isSearching && <p style={{ fontSize: "0.8rem", padding: 8, color: "#6b7280", margin: 0 }}>Searching database...</p>}
+                  {!isSearching && customerResults.length === 0 && (
+                    <p style={{ fontSize: "0.8rem", padding: 8, color: "#6b7280", margin: 0 }}>No matching customer found.</p>
+                  )}
+                  {customerResults.map((cust) => (
+                    <div
+                      key={cust.id || cust._id || cust.CustomerID}
+                      onClick={() => handleSelectCustomer(cust)}
+                      style={{ padding: "8px 12px", borderBottom: "1px solid #f3f4f6", cursor: "pointer", fontSize: "0.82rem" }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "#eff6ff")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <div style={{ fontWeight: 700, color: "#1f2937" }}>{cust.name || cust.CustomerName}</div>
+                      <div style={{ color: "#6b7280", fontSize: "0.75rem" }}>{cust.contactNumber || cust.phone || cust.ContactNo}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "10px 12px" }}>
+              <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "#64748b", textTransform: "uppercase", display: "block", marginBottom: 2 }}>
+                Selected Customer
+              </span>
+              <div style={{ fontSize: "0.85rem", fontWeight: 700, color: "#1e293b" }}>
+                {selectedCustomer?.customerName || <span style={{ color: "#94a3b8", fontWeight: 400 }}>No customer selected</span>}
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "#475569" }}>
+                {selectedCustomer?.contactNumber ? `Contact: ${selectedCustomer.contactNumber}` : "—"}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>
+                Complete Address <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <textarea
+                rows={2}
+                placeholder="House No., Street, Barangay, City, Landmark"
+                value={address}
+                onChange={(e) => setAddress(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem", resize: "none" }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>
+                Delivery Instructions (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Leave at guard house, call upon arrival"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+              />
+            </div>
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>
+                  Vehicle Type
+                </label>
+                <select
+                  value={vehicleType}
+                  onChange={(e) => setVehicleType(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+                >
+                  {vehicleTypes.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div style={{ flex: 1 }}>
+                <label style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>
+                  Assign Rider
+                </label>
+                <select
+                  value={assignedRiderId}
+                  onChange={(e) => setAssignedRiderId(e.target.value)}
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
+                >
+                  <option value="">Unassigned</option>
+                  {isLoadingRiders && <option disabled>Loading riders...</option>}
+                  {riders.map((r) => (
+                    <option key={r.id || r.UserID} value={r.id || r.UserID}>
+                      {r.name || r.FullName || r.username}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, borderTop: "1px solid #e5e7eb", paddingTop: 14 }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: "9px 18px", borderRadius: 6, border: "1px solid #d1d5db", background: "#fff", color: "#374151", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSaveModal}
+              style={{ padding: "9px 22px", borderRadius: 6, border: "none", background: "#1d6bf3", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}
+            >
+              Save Delivery Details
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <AddCustomerModal
+        isOpen={showAddCustomerModal}
+        onClose={() => setShowAddCustomerModal(false)}
+        onCustomerCreated={(newCust) => {
+          setSelectedCustomer({
+            id: newCust.id || newCust.CustomerID,
+            customerName: newCust.customerName,
+            contactNumber: newCust.contactNumber,
+          });
+          setAddress(newCust.address || "");
+        }}
+      />
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// POS Terminal Main Component
+// ---------------------------------------------------------------------------
 export default function PosTerminal() {
   const [products, setProducts] = useState([]);
   const [warehouses, setWarehouses] = useState([]);
@@ -212,6 +997,12 @@ export default function PosTerminal() {
 
   const [heldCarts, setHeldCarts] = useState(() => loadHeldCarts());
   const [showHeldModal, setShowHeldModal] = useState(false);
+
+  const [showPickupModal, setShowPickupModal] = useState(false);
+  const [pickupDetails, setPickupDetails] = useState(null);
+
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryDetails, setDeliveryDetails] = useState(null);
 
   useEffect(() => {
     saveHeldCarts(heldCarts);
@@ -335,7 +1126,6 @@ export default function PosTerminal() {
     setCart((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
-        // Clamp quantity between 1 and available stock
         const clampedQty = Math.max(1, Math.min(newQty, item.stock));
         return { ...item, qty: clampedQty };
       })
@@ -346,7 +1136,26 @@ export default function PosTerminal() {
     setCart((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    setCart([]);
+    setPickupDetails(null);
+    setDeliveryDetails(null);
+  };
+
+  const handleCustomerTypeChange = (e) => {
+    const selected = e.target.value;
+    setCustomerType(selected);
+    if (selected === "Pickup") {
+      setShowPickupModal(true);
+      setDeliveryDetails(null);
+    } else if (selected === "Delivery") {
+      setShowDeliveryModal(true);
+      setPickupDetails(null);
+    } else {
+      setPickupDetails(null);
+      setDeliveryDetails(null);
+    }
+  };
 
   const holdCart = () => {
     if (cart.length === 0) {
@@ -359,6 +1168,8 @@ export default function PosTerminal() {
       heldAt: new Date().toISOString(),
       items: cart,
       customerType,
+      pickupDetails,
+      deliveryDetails,
       discountValue,
       paymentMethod,
       warehouseId: selectedWarehouseId,
@@ -376,6 +1187,8 @@ export default function PosTerminal() {
     }
     setCart(held.items);
     setCustomerType(held.customerType || "Walk-in");
+    setPickupDetails(held.pickupDetails || null);
+    setDeliveryDetails(held.deliveryDetails || null);
     setDiscountValue(held.discountValue || 0);
     setPaymentMethod(held.paymentMethod || "");
     setSelectedWarehouseId(held.warehouseId || selectedWarehouseId);
@@ -389,11 +1202,25 @@ export default function PosTerminal() {
     setHeldCarts((prev) => prev.filter((h) => h.id !== heldId));
   };
 
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.qty, 0), [cart]);
-  const discount = subtotal * discountValue;
+  const subtotalInclusive = useMemo(() => cart.reduce((sum, item) => sum + item.price * item.qty, 0), [cart]);
+  const discount = subtotalInclusive * discountValue;
+  const totalSalesInclusive = subtotalInclusive - discount;
+  const vatAmount = totalSalesInclusive * (0.12 / 1.12);
+  const amountNetOfVat = totalSalesInclusive - vatAmount;
+  const totalAmountDue = totalSalesInclusive;
 
   const handlePay = () => {
     if (cart.length === 0) return;
+    if (customerType === "Pickup" && !pickupDetails) {
+      setPosError("Please complete the pickup details before proceeding.");
+      setShowPickupModal(true);
+      return;
+    }
+    if (customerType === "Delivery" && !deliveryDetails) {
+      setPosError("Please complete the delivery details before proceeding.");
+      setShowDeliveryModal(true);
+      return;
+    }
     setPosError("");
     setShowPaymentModal(true);
   };
@@ -408,6 +1235,8 @@ export default function PosTerminal() {
         method: "POST",
         body: JSON.stringify({
           customerType,
+          pickupDetails: customerType === "Pickup" ? pickupDetails : undefined,
+          deliveryDetails: customerType === "Delivery" ? deliveryDetails : undefined,
           items: cart.map((item) => ({
             productId: item.id,
             qty: item.qty,
@@ -424,8 +1253,10 @@ export default function PosTerminal() {
         printReceipt({
           saleNo: response.saleNo,
           datetime: new Date(),
-          orderType: "Walk-in",
-          customerName: customerType,
+          orderType: customerType,
+          customerName: customerType === "Pickup" ? pickupDetails?.customerName : customerType === "Delivery" ? deliveryDetails?.customerName : customerType,
+          pickupDetails: customerType === "Pickup" ? pickupDetails : undefined,
+          deliveryDetails: customerType === "Delivery" ? deliveryDetails : undefined,
           items: cart.map((it) => ({ name: it.name, qty: it.qty, unitPrice: it.price, subtotal: it.qty * it.price })),
           subtotal: response.subtotal,
           discount: response.discount,
@@ -583,7 +1414,7 @@ export default function PosTerminal() {
                   <select
                     className="pos-select"
                     value={customerType}
-                    onChange={(e) => setCustomerType(e.target.value)}
+                    onChange={handleCustomerTypeChange}
                   >
                     {customerTypes.map((c) => (
                       <option key={c} value={c}>{c}</option>
@@ -591,6 +1422,53 @@ export default function PosTerminal() {
                   </select>
                   <ChevronDown size={16} className="pos-select-icon" />
                 </div>
+
+                {customerType === "Pickup" && (
+                  <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: "0.8rem", color: "#1e40af" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, marginBottom: 4 }}>
+                      <span>Pickup Schedule</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPickupModal(true)}
+                        style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", textDecoration: "underline", fontSize: "0.75rem" }}
+                      >
+                        {pickupDetails ? "Edit" : "Set Details"}
+                      </button>
+                    </div>
+                    {pickupDetails ? (
+                      <>
+                        <div>Customer: {pickupDetails.customerName} ({pickupDetails.contactNumber})</div>
+                        <div>Schedule: {pickupDetails.pickupDate} at {pickupDetails.pickupTime}</div>
+                      </>
+                    ) : (
+                      <span style={{ color: "#dc2626", fontWeight: 600 }}>Details pending</span>
+                    )}
+                  </div>
+                )}
+
+                {customerType === "Delivery" && (
+                  <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "8px 12px", marginBottom: 10, fontSize: "0.8rem", color: "#1e40af" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontWeight: 700, marginBottom: 4 }}>
+                      <span>Delivery Details</span>
+                      <button
+                        type="button"
+                        onClick={() => setShowDeliveryModal(true)}
+                        style={{ background: "none", border: "none", color: "#2563eb", cursor: "pointer", textDecoration: "underline", fontSize: "0.75rem" }}
+                      >
+                        {deliveryDetails ? "Edit" : "Set Details"}
+                      </button>
+                    </div>
+                    {deliveryDetails ? (
+                      <>
+                        <div>Customer: {deliveryDetails.customerName} ({deliveryDetails.contactNumber})</div>
+                        <div>Address: {deliveryDetails.address}</div>
+                        <div>Vehicle: {deliveryDetails.vehicleType} | Rider: {deliveryDetails.riderName}</div>
+                      </>
+                    ) : (
+                      <span style={{ color: "#dc2626", fontWeight: 600 }}>Details pending</span>
+                    )}
+                  </div>
+                )}
 
                 <div className="checkout-row-selects">
                   <div className="pos-select-wrap">
@@ -623,16 +1501,28 @@ export default function PosTerminal() {
 
                 <div className="checkout-summary">
                   <div className="checkout-line">
-                    <span>Subtotal:</span>
-                    <span>{formatPeso(subtotal)}</span>
+                    <span>Subtotal (VAT Inclusive):</span>
+                    <span>{formatPeso(subtotalInclusive)}</span>
                   </div>
                   <div className="checkout-line">
-                    <span>Discount:</span>
+                    <span>Less: Discount:</span>
                     <span>{formatPeso(discount)}</span>
                   </div>
+                  <div className="checkout-line">
+                    <span>Total Sales (VAT Inclusive):</span>
+                    <span>{formatPeso(totalSalesInclusive)}</span>
+                  </div>
+                  <div className="checkout-line">
+                    <span>Less: VAT:</span>
+                    <span>{formatPeso(vatAmount)}</span>
+                  </div>
+                  <div className="checkout-line">
+                    <span>Amount Net of VAT:</span>
+                    <span>{formatPeso(amountNetOfVat)}</span>
+                  </div>
                   <div className="checkout-line checkout-total">
-                    <span>Total (incl. tax at checkout)</span>
-                    <span>—</span>
+                    <span>TOTAL AMOUNT DUE:</span>
+                    <span>{formatPeso(totalAmountDue)}</span>
                   </div>
                 </div>
 
@@ -652,9 +1542,29 @@ export default function PosTerminal() {
 
       <PaymentModal
         isOpen={showPaymentModal}
-        totalAmount={subtotal - discount}
+        totalAmount={totalAmountDue}
         onCancel={() => setShowPaymentModal(false)}
         onConfirm={handleConfirmPayment}
+      />
+
+      <PickupModal
+        isOpen={showPickupModal}
+        onClose={() => setShowPickupModal(false)}
+        initialData={pickupDetails}
+        onSave={(data) => {
+          setPickupDetails(data);
+          setShowPickupModal(false);
+        }}
+      />
+
+      <DeliveryModal
+        isOpen={showDeliveryModal}
+        onClose={() => setShowDeliveryModal(false)}
+        initialData={deliveryDetails}
+        onSave={(data) => {
+          setDeliveryDetails(data);
+          setShowDeliveryModal(false);
+        }}
       />
 
       <HeldCartsModal
