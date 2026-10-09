@@ -4,6 +4,35 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 
+async function nextId(conn, table, column, prefix, pad = 3) {
+  const normalizedPrefix = String(prefix || "").toUpperCase();
+  const [rows] = await conn.query(
+    `SELECT ${column} AS id FROM ${table} WHERE ${column} LIKE :pattern`,
+    { pattern: `${normalizedPrefix}%` }
+  );
+
+  let max = 0;
+  const matcher = new RegExp(`^${normalizedPrefix}-?([0-9]+)$`);
+  for (const row of rows) {
+    const candidate = String(row.id || "").toUpperCase();
+    const match = candidate.match(matcher);
+    if (!match) continue;
+    const n = Number(match[1]);
+    if (Number.isInteger(n) && n > max) max = n;
+  }
+
+  let next = max + 1;
+  while (true) {
+    const candidateId = `${normalizedPrefix}-${String(next).padStart(pad, "0")}`;
+    const [existsRows] = await conn.query(
+      `SELECT ${column} AS id FROM ${table} WHERE ${column} = :id LIMIT 1`,
+      { id: candidateId }
+    );
+    if (!existsRows[0]) return candidateId;
+    next += 1;
+  }
+}
+
 router.use(authenticate);
 // GET /customers?search=
 router.get(
@@ -45,18 +74,41 @@ router.post(
   asyncHandler(async (req, res) => {
     const { name, customerType, phone, address, status } = req.body;
     if (!name || !phone) throw new ApiError(400, "name and phone are required.");
-    const [result] = await pool.query(
-      `INSERT INTO Customer (CustomerName, CustomerType, ContactNo, Address, Status)
-       VALUES (:name, :type, :phone, :address, :status)`,
-      {
-        name,
-        type: customerType || "Residential",
-        phone,
-        address: address || "N/A",
-        status: status || "Active",
+
+    const conn = await pool.getConnection();
+    try {
+      let createdId = null;
+
+      for (let attempts = 0; attempts < 5; attempts += 1) {
+        const customerId = await nextId(conn, "Customer", "CustomerID", "CUST");
+        try {
+          await conn.query(
+            `INSERT INTO Customer (CustomerID, CustomerName, CustomerType, ContactNo, Address, Status)
+             VALUES (:customerId, :name, :type, :phone, :address, :status)`,
+            {
+              customerId,
+              name,
+              type: customerType || "Residential",
+              phone,
+              address: address || "N/A",
+              status: status || "Active",
+            }
+          );
+          createdId = customerId;
+          break;
+        } catch (err) {
+          if (err?.code !== "ER_DUP_ENTRY") throw err;
+        }
       }
-    );
-    res.status(201).json({ id: result.insertId });
+
+      if (!createdId) {
+        throw new ApiError(409, "Could not generate a unique CustomerID. Please try again.");
+      }
+
+      res.status(201).json({ id: createdId });
+    } finally {
+      conn.release();
+    }
   })
 );
 
