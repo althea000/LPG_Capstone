@@ -1,9 +1,27 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Download, FileSearch, Printer, Trash2, Upload } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FileSearch, Printer, Trash2, Upload } from "lucide-react";
 import SalesInfoModal from "./SalesInfoModal";
 import { apiRequest } from "./api";
 import { printReceipt } from "./utils/receipt";
 import "./Sales.css";
+
+const PAGE_SIZE = 6;
+
+function getPaginationGroup(currentPage, totalPages, maxVisible = 6) {
+  let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  const pages = [];
+  for (let page = start; page <= end; page += 1) {
+    pages.push(page);
+  }
+  return pages;
+}
 
 function formatPeso(amount) {
   return `₱ ${Number(amount).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -63,6 +81,7 @@ export default function Sales() {
   const [printingId, setPrintingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [isImporting, setIsImporting] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   const fileInputRef = useRef(null);
 
@@ -79,8 +98,6 @@ export default function Sales() {
 
   useEffect(() => {
     loadSales();
-    const intervalId = window.setInterval(loadSales, 10000);
-    return () => window.clearInterval(intervalId);
   }, []);
 
   const cashiers = useMemo(
@@ -101,6 +118,30 @@ export default function Sales() {
       return matchesSearch && matchesCashier && matchesStatus;
     });
   }, [sales, searchTerm, cashierFilter, statusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSales.length / PAGE_SIZE));
+  const validatedCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedSales = useMemo(() => {
+    return filteredSales.slice(
+      (validatedCurrentPage - 1) * PAGE_SIZE,
+      validatedCurrentPage * PAGE_SIZE
+    );
+  }, [filteredSales, validatedCurrentPage]);
+
+  const goToPage = (page) => {
+    if (page < 1 || page > totalPages) return;
+    setCurrentPage(page);
+  };
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, cashierFilter, statusFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const statCards = useMemo(() => {
     const today = new Date().toDateString();
@@ -281,7 +322,7 @@ export default function Sales() {
                 <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
               )}
               {!isLoading &&
-                filteredSales.map((sale) => (
+                paginatedSales.map((sale) => (
                   <tr key={sale.id}>
                     <td>{sale.saleNo}</td>
                     <td>{new Date(sale.datetime).toLocaleString()}</td>
@@ -331,6 +372,52 @@ export default function Sales() {
               )}
             </tbody>
           </table>
+
+          {!isLoading && (
+            <div className="users-pagination" style={{ display: "flex", gap: "6px", alignItems: "center", padding: "16px 20px", borderTop: "1px solid #f3f4f6" }}>
+              <button
+                type="button"
+                className="page-btn"
+                onClick={() => goToPage(validatedCurrentPage - 1)}
+                disabled={validatedCurrentPage === 1}
+                aria-label="Previous page"
+                style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
+              >
+                <ChevronLeft size={16} />
+              </button>
+
+              {getPaginationGroup(validatedCurrentPage, totalPages, 6).map((page) => (
+                <button
+                  key={page}
+                  type="button"
+                  className={`page-btn ${page === validatedCurrentPage ? "active" : ""}`}
+                  onClick={() => goToPage(page)}
+                  style={{
+                    borderRadius: "8px",
+                    padding: "8px 14px",
+                    border: "1px solid #d1d5db",
+                    background: page === validatedCurrentPage ? "#1e3a8a" : "#fff",
+                    color: page === validatedCurrentPage ? "#fff" : "#1f2937",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                  }}
+                >
+                  {page}
+                </button>
+              ))}
+
+              <button
+                type="button"
+                className="page-btn"
+                onClick={() => goToPage(validatedCurrentPage + 1)}
+                disabled={validatedCurrentPage === totalPages}
+                aria-label="Next page"
+                style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
