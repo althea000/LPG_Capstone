@@ -8,7 +8,6 @@ const TRANSFER_STATUS = ["Completed", "In Transit", "Pending"];
 export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
   const [warehouses, setWarehouses] = useState([]);
   const [inventory, setInventory] = useState([]);
-  const [transfers, setTransfers] = useState([]);
 
   const [fromWarehouseId, setFromWarehouseId] = useState("");
   const [toWarehouseId, setToWarehouseId] = useState("");
@@ -20,10 +19,9 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
   const [error, setError] = useState("");
 
   const loadModalData = async () => {
-    const [warehouseRows, inventoryRows, transferRows] = await Promise.all([
+    const [warehouseRows, inventoryRows] = await Promise.all([
       apiRequest("/warehouses"),
       apiRequest("/inventory"),
-      apiRequest("/inventory/transfers"),
     ]);
 
     const activeWarehouses = filterVisibleWarehouses(
@@ -34,7 +32,6 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
 
     setWarehouses(activeWarehouses);
     setInventory(Array.isArray(inventoryRows) ? inventoryRows : []);
-    setTransfers(Array.isArray(transferRows) ? transferRows : []);
 
     const firstWarehouseId = activeWarehouses[0]?.id || "";
     const secondWarehouseId = activeWarehouses[1]?.id || activeWarehouses[0]?.id || "";
@@ -266,45 +263,6 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
           <button type="button" className="btn-approved" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? "Saving…" : "Create Transfer"}
           </button>
-        </div>
-
-        <div className="modal-summary">
-          <h3 className="items-title">Recent Transfers</h3>
-          <div className="modal-table-wrap" style={{ maxHeight: 220, overflowY: "auto" }}>
-            <table className="modal-table">
-              <thead>
-                <tr>
-                  <th>Transfer ID</th>
-                  <th>From</th>
-                  <th>To</th>
-                  <th>Date</th>
-                  <th>Status</th>
-                  <th>Items</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transfers.length === 0 && (
-                  <tr>
-                    <td colSpan={6} style={{ textAlign: "center", padding: 16 }}>No transfer records yet.</td>
-                  </tr>
-                )}
-                {transfers.slice(0, 15).map((transfer) => (
-                  <tr key={transfer.transferId}>
-                    <td>{transfer.transferId}</td>
-                    <td>{transfer.fromWarehouse}</td>
-                    <td>{transfer.toWarehouse}</td>
-                    <td>{new Date(transfer.transferDate).toLocaleString()}</td>
-                    <td>{transfer.status}</td>
-                    <td>
-                      {(transfer.items || [])
-                        .map((item) => `${item.productName} (${item.quantity})`)
-                        .join(", ")}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
     </div>

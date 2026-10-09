@@ -50,6 +50,10 @@
   align-items: center;
 }
 
+.form-row-top {
+  align-items: flex-start;
+}
+
 .form-label {
   font-size: 0.9rem;
   font-weight: 600;
@@ -77,6 +81,24 @@
 .form-input:focus,
 .form-select:focus {
   border-color: #0082fb;
+}
+
+.reason-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.reason-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.reason-other-input {
+  margin-top: 4px;
 }
 
 /* Items Section Header */

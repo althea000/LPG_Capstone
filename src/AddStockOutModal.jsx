@@ -3,35 +3,66 @@ import "./AddStockOutModal.css";
 import { apiRequest } from "./api";
 import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 
-const REASONS = ["Damaged", "Expired", "Defective", "Lost"];
+const STOCK_OUT_REASONS = [
+  "Damaged Product",
+  "Defective Cylinder",
+  "Return to Supplier",
+  "Expired/Unusable",
+  "Inventory Adjustment",
+  "Other",
+];
 
 export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
+  const [warehouseStockRows, setWarehouseStockRows] = useState([]);
   const [warehouseId, setWarehouseId] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
-  const [reason, setReason] = useState("Damaged");
+  const [reason, setReason] = useState("Damaged Product");
+  const [otherReason, setOtherReason] = useState("");
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState([{ productId: "", quantity: "" }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const loadWarehouseStocks = async (targetWarehouseId) => {
+    if (!targetWarehouseId) {
+      setWarehouseStockRows([]);
+      return;
+    }
+
+    const rows = await apiRequest(`/inventory?warehouseId=${encodeURIComponent(targetWarehouseId)}`);
+    setWarehouseStockRows(Array.isArray(rows) ? rows : []);
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     setError("");
     Promise.all([apiRequest("/warehouses"), apiRequest("/products?status=Active")])
-      .then(([warehouseData, productData]) => {
+      .then(async ([warehouseData, productData]) => {
         const visibleWarehouses = filterVisibleWarehouses(warehouseData);
+        const firstWarehouseId = visibleWarehouses[0]?.id || "";
+
         setWarehouses(visibleWarehouses);
         setProducts(productData);
-        if (visibleWarehouses[0]) setWarehouseId(visibleWarehouses[0].id);
+        setWarehouseId(firstWarehouseId);
+
+        await loadWarehouseStocks(firstWarehouseId);
       })
       .catch((err) => setError(err.message || "Failed to load warehouses/products."));
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || !warehouseId) return;
+    loadWarehouseStocks(warehouseId).catch((err) => setError(err.message || "Failed to load stock levels."));
+  }, [isOpen, warehouseId]);
+
   if (!isOpen) return null;
 
   const productMap = Object.fromEntries(products.map((p) => [p.productId, p]));
+  const stockByProduct = new Map(
+    warehouseStockRows.map((row) => [String(row.productId), Number(row.currentStock || 0)])
+  );
 
   const updateItem = (index, field, value) => {
     setItems((prev) => prev.map((it, i) => (i === index ? { ...it, [field]: value } : it)));
@@ -42,10 +73,13 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
 
   const validItems = items.filter((it) => it.productId && Number(it.quantity) > 0);
   const totalQty = validItems.reduce((sum, it) => sum + Number(it.quantity), 0);
+  const getAvailableStock = (productId) => Number(stockByProduct.get(String(productId)) || 0);
 
   const resetAndClose = () => {
     setItems([{ productId: "", quantity: "" }]);
     setReferenceNo("");
+    setReason("Damaged Product");
+    setOtherReason("");
     setRemarks("");
     setError("");
     onClose();
@@ -53,16 +87,31 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
 
   const handleSubmit = async () => {
     const normalizedReferenceNo = referenceNo.trim();
+    const normalizedOtherReason = otherReason.trim();
+    const normalizedRemarks = remarks.trim();
 
     if (!warehouseId) return setError("Please select a warehouse.");
     if (!normalizedReferenceNo) return setError("Reference ID is required.");
+    if (!reason) return setError("Please select a reason.");
+    if (reason === "Other" && !normalizedOtherReason) {
+      return setError("Please provide details when Other reason is selected.");
+    }
     if (!validItems.length) return setError("Add at least one item with a product and quantity.");
 
     for (const it of validItems) {
       const p = productMap[it.productId];
-      if (p && Number(it.quantity) > p.stock) {
-        return setError(`Cannot remove ${it.quantity} of "${p.name}" — only ${p.stock} in stock.`);
+      const availableStock = getAvailableStock(it.productId);
+      if (Number(it.quantity) > availableStock) {
+        return setError(`Cannot remove ${it.quantity} of "${p?.name || it.productId}" — only ${availableStock} in stock.`);
       }
+    }
+
+    const remarksParts = [];
+    if (reason === "Other") {
+      remarksParts.push(`Other reason: ${normalizedOtherReason}`);
+    }
+    if (normalizedRemarks) {
+      remarksParts.push(normalizedRemarks);
     }
 
     setIsSubmitting(true);
@@ -74,7 +123,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
           warehouseId,
           referenceNo: normalizedReferenceNo,
           reason,
-          remarks: remarks || null,
+          remarks: remarksParts.length ? remarksParts.join(" | ") : null,
           items: validItems.map((it) => ({
             productId: String(it.productId).trim(),
             quantity: Number(it.quantity),
@@ -121,14 +170,31 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
             />
           </div>
 
-          <div className="form-row">
+          <div className="form-row form-row-top">
             <span className="form-label">Reason</span>
             <span className="form-colon">:</span>
-            <select className="form-select" value={reason} onChange={(e) => setReason(e.target.value)}>
-              {REASONS.map((r) => (
-                <option key={r} value={r}>{r}</option>
+            <div className="reason-options">
+              {STOCK_OUT_REASONS.map((option) => (
+                <label key={option} className="reason-option">
+                  <input
+                    type="radio"
+                    name="stock-out-reason"
+                    checked={reason === option}
+                    onChange={() => setReason(option)}
+                  />
+                  <span>{option}</span>
+                </label>
               ))}
-            </select>
+              {reason === "Other" && (
+                <input
+                  type="text"
+                  className="form-input reason-other-input"
+                  placeholder="Describe the reason or conditions..."
+                  value={otherReason}
+                  onChange={(e) => setOtherReason(e.target.value)}
+                />
+              )}
+            </div>
           </div>
 
           <div className="form-row">
@@ -165,6 +231,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
             <tbody>
               {items.map((item, index) => {
                 const product = productMap[item.productId];
+                const availableStock = getAvailableStock(item.productId);
                 return (
                   <tr key={index}>
                     <td className="text-center">{index + 1}</td>
@@ -189,7 +256,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
                         style={{ width: 70, padding: "6px 8px", textAlign: "center" }}
                       />
                     </td>
-                    <td className="text-center">{product ? product.stock : "—"}</td>
+                    <td className="text-center">{product ? availableStock : 0}</td>
                     <td className="text-center">
                       <button
                         type="button"

@@ -53,6 +53,17 @@ function normalizeRemarks(remarks) {
   return normalized || null;
 }
 
+function normalizeReason(reason, fallbackReason) {
+  const normalized = String(reason || fallbackReason || "").trim();
+  if (!normalized) {
+    throw new ApiError(400, "reason is required.");
+  }
+  if (normalized.length > 30) {
+    throw new ApiError(400, "reason must not exceed 30 characters.");
+  }
+  return normalized;
+}
+
 function normalizeMovementItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new ApiError(400, "At least one item is required.");
@@ -283,12 +294,13 @@ async function getOrCreateInventory(conn, warehouseId, productId) {
 router.post(
   "/stock-in",
   asyncHandler(async (req, res) => {
-    const { warehouseId, referenceNo, remarks, items } = req.body;
+    const { warehouseId, referenceNo, reason, remarks, items } = req.body;
     if (!warehouseId || !Array.isArray(items) || !items.length) {
       throw new ApiError(400, "warehouseId and at least one item are required.");
     }
 
     const normalizedReferenceNo = normalizeReferenceNo(referenceNo);
+    const normalizedReason = normalizeReason(reason, "Purchase");
     const normalizedRemarks = normalizeRemarks(remarks);
     const normalizedItems = normalizeMovementItems(items);
 
@@ -320,12 +332,13 @@ router.post(
         });
         await conn.query(
           `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, 'Purchase', :ref, :remarks)`,
+           VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, :reason, :ref, :remarks)`,
           {
             transactionId,
             invId: inv.InventoryID,
             userId: req.user.userId,
             qty: item.quantity,
+            reason: normalizedReason,
             ref: normalizedReferenceNo,
             remarks: normalizedRemarks,
           }
@@ -355,7 +368,7 @@ router.post(
     }
 
     const normalizedReferenceNo = normalizeReferenceNo(referenceNo);
-    const normalizedReason = String(reason || "Damaged").trim() || "Damaged";
+    const normalizedReason = normalizeReason(reason, "Damaged");
     const normalizedRemarks = normalizeRemarks(remarks);
     const normalizedItems = normalizeMovementItems(items);
 

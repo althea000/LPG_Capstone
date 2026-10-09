@@ -3,11 +3,15 @@ import "./AddStockInModal.css";
 import { apiRequest } from "./api";
 import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 
+const STOCK_IN_REASONS = ["Supplier Delivery", "Customer Return", "Inventory Adjustments", "Other"];
+
 export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
   const [warehouses, setWarehouses] = useState([]);
   const [products, setProducts] = useState([]);
   const [warehouseId, setWarehouseId] = useState("");
   const [referenceNo, setReferenceNo] = useState("");
+  const [reason, setReason] = useState("Supplier Delivery");
+  const [otherReason, setOtherReason] = useState("");
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState([{ productId: "", quantity: "" }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -47,6 +51,8 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
   const resetAndClose = () => {
     setItems([{ productId: "", quantity: "" }]);
     setReferenceNo("");
+    setReason("Supplier Delivery");
+    setOtherReason("");
     setRemarks("");
     setError("");
     onClose();
@@ -55,10 +61,24 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     const normalizedReferenceNo = referenceNo.trim();
+    const normalizedOtherReason = otherReason.trim();
+    const normalizedRemarks = remarks.trim();
 
     if (!warehouseId) return setError("Please select a warehouse.");
     if (!normalizedReferenceNo) return setError("Reference ID is required.");
+    if (!reason) return setError("Please select a reason.");
+    if (reason === "Other" && !normalizedOtherReason) {
+      return setError("Please provide details when Other reason is selected.");
+    }
     if (!validItems.length) return setError("Add at least one item with a product and quantity.");
+
+    const remarksParts = [];
+    if (reason === "Other") {
+      remarksParts.push(`Other reason: ${normalizedOtherReason}`);
+    }
+    if (normalizedRemarks) {
+      remarksParts.push(normalizedRemarks);
+    }
 
     setIsSubmitting(true);
     setError("");
@@ -68,7 +88,8 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
         body: JSON.stringify({
           warehouseId,
           referenceNo: normalizedReferenceNo,
-          remarks: remarks || null,
+          reason,
+          remarks: remarksParts.length ? remarksParts.join(" | ") : null,
           items: validItems.map((it) => ({
             productId: String(it.productId).trim(),
             quantity: Number(it.quantity),
@@ -113,6 +134,33 @@ export default function AddStockInModal({ isOpen, onClose, onSuccess }) {
               value={referenceNo}
               onChange={(e) => setReferenceNo(e.target.value)}
             />
+          </div>
+
+          <div className="form-row form-row-top">
+            <span className="form-label">Reason</span>
+            <span className="form-colon">:</span>
+            <div className="reason-options">
+              {STOCK_IN_REASONS.map((option) => (
+                <label key={option} className="reason-option">
+                  <input
+                    type="radio"
+                    name="stock-in-reason"
+                    checked={reason === option}
+                    onChange={() => setReason(option)}
+                  />
+                  <span>{option}</span>
+                </label>
+              ))}
+              {reason === "Other" && (
+                <input
+                  type="text"
+                  className="form-input reason-other-input"
+                  placeholder="Describe the reason or conditions..."
+                  value={otherReason}
+                  onChange={(e) => setOtherReason(e.target.value)}
+                />
+              )}
+            </div>
           </div>
 
           <div className="form-row">
