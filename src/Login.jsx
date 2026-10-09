@@ -4,6 +4,8 @@ import navLogo from "./assets/logo-login.png";
 import cardLogo from "./assets/logo.png";
 import { apiRequest } from "./api";
 import ForgotPasswordModal from "./ForgotPasswordModal";
+import termsOfServiceText from "./legal/terms-of-service.txt?raw";
+import privacyPolicyText from "./legal/privacy-policy.txt?raw";
 import "./Login.css";
 
 // ---------------------------------------------------------------------------
@@ -100,6 +102,31 @@ function TopNav({ currentView, setCurrentView }) {
   );
 }
 
+function LegalDocumentModal({ documentKey, onClose }) {
+  if (!documentKey) return null;
+
+  const isTerms = documentKey === "terms";
+  const title = isTerms ? "Terms of Service" : "Privacy Policy";
+  const content = isTerms ? termsOfServiceText : privacyPolicyText;
+
+  return (
+    <div className="legal-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="legal-modal-title">
+      <div className="legal-modal-card">
+        <div className="legal-modal-header">
+          <h2 id="legal-modal-title" className="legal-modal-title">{title}</h2>
+          <button type="button" className="legal-modal-close" onClick={onClose} aria-label={`Close ${title}`}>
+            Close
+          </button>
+        </div>
+
+        <div className="legal-modal-body">
+          <pre className="legal-modal-content">{content}</pre>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Login({ onLogin, onRegisterSuccess }) {
   // Navigation State: 'login' | 'register' | 'about' | 'contact'
   const [currentView, setCurrentView] = useState("login");
@@ -111,6 +138,7 @@ export default function Login({ onLogin, onRegisterSuccess }) {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
+  const [legalModalKey, setLegalModalKey] = useState(null);
 
   // Registration Form State
   const [regForm, setRegForm] = useState({
@@ -136,6 +164,25 @@ export default function Login({ onLogin, onRegisterSuccess }) {
     subject: "",
     message: "",
   });
+
+  React.useEffect(() => {
+    if (!legalModalKey) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setLegalModalKey(null);
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [legalModalKey]);
 
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
@@ -292,6 +339,16 @@ export default function Login({ onLogin, onRegisterSuccess }) {
               <button type="submit" className="login-submit" disabled={isSubmitting}>
                 {isSubmitting ? "LOGGING IN..." : "LOGIN"}
               </button>
+
+              <p className="login-legal-links" aria-label="Legal links">
+                <button type="button" className="legal-inline-link" onClick={() => setLegalModalKey("terms")}>
+                  Terms of Service
+                </button>
+                <span aria-hidden="true"> • </span>
+                <button type="button" className="legal-inline-link" onClick={() => setLegalModalKey("privacy")}>
+                  Privacy Policy
+                </button>
+              </p>
             </form>
           </div>
         )}
@@ -475,8 +532,22 @@ export default function Login({ onLogin, onRegisterSuccess }) {
                   />
                   <label htmlFor="termsAgreed" className="reg-checkbox-label">
                     I confirm that the information provided is accurate and that I am authorized to register this company. I agree to the{" "}
-                    <a href="#terms" className="reg-link">Terms of Service</a> and{" "}
-                    <a href="#privacy" className="reg-link">Privacy Policy</a> in accordance with RA 10173.
+                    <button
+                      type="button"
+                      className="reg-link legal-inline-link"
+                      onClick={() => setLegalModalKey("terms")}
+                    >
+                      Terms of Service
+                    </button>{" "}
+                    and{" "}
+                    <button
+                      type="button"
+                      className="reg-link legal-inline-link"
+                      onClick={() => setLegalModalKey("privacy")}
+                    >
+                      Privacy Policy
+                    </button>{" "}
+                    in accordance with RA 10173.
                   </label>
                 </div>
                 <FieldError message={regErrors.termsAgreed} />
@@ -647,6 +718,10 @@ export default function Login({ onLogin, onRegisterSuccess }) {
       <ForgotPasswordModal
         isOpen={isForgotPasswordOpen}
         onClose={() => setIsForgotPasswordOpen(false)}
+      />
+      <LegalDocumentModal
+        documentKey={legalModalKey}
+        onClose={() => setLegalModalKey(null)}
       />
     </div>
   );
