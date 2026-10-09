@@ -91,10 +91,11 @@
 }
 
 .inventory-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 /* Action buttons (Add Stock In / Add Stock Out / Import) — explicitly
@@ -103,10 +104,12 @@
    until hovered if an inherited opacity/transition rule applied. */
 .inventory-actions .action-btn,
 .action-btn {
-  display: inline-flex !important;
+  display: inline-grid !important;
+  grid-template-columns: 16px 1fr;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  column-gap: 10px;
+  width: 100%;
+  min-width: 0;
   background: #0082fb !important;
   color: #ffffff !important;
   border: none;
@@ -120,6 +123,9 @@
   visibility: visible !important;
   pointer-events: auto !important;
   transition: background-color 0.15s ease;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inventory-actions .action-btn svg,

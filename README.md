@@ -1,13 +1,13 @@
-git clone -b experiment-test https://github.com/MarzanoMiles/LPG_Capstone.git 
-
-cd GasTrack-CAPSTONE
+```
+git clone -b experiment-test-v2 https://github.com/althea000/LPG_Capstone.git
+cd LPG_Capstone
 npm install
-echo "VITE_API_BASE_URL=http://localhost:4000" > .env
+"VITE_API_BASE_URL=http://localhost:4000" | Out-File -Encoding utf8 .env
 
-cd backend
+cd Backend
 npm install
-cp .env.example .env
-#edit backend/.env now (DB_PASSWORD, JWT_SECRET)
+Copy-Item .env.example .env
+# edit Backend\.env (DB_PASSWORD, JWT_SECRET, SMTP_* if needed)
 
 mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS gastrack"
 mysql -u root -p gastrack < db/schema.sql
@@ -15,22 +15,31 @@ mysql -u root -p gastrack < db/patch_customer_fields.sql
 mysql -u root -p gastrack < db/patch_compliance_reports.sql
 mysql -u root -p gastrack < db/patch_user_fields.sql
 mysql -u root -p gastrack < db/patch_company_settings.sql
-mysql -u root -p gastrack < backend/db/patch_password_reset.sql
-mysql -u root -p gastrack < backend/db/patch_restock_confidence.sql
-# optional (for existing DBs with incremental P-001 style product IDs):
-mysql -u root -p gastrack < backend/db/patch_product_sku.sql
+mysql -u root -p gastrack < db/patch_password_reset.sql
+mysql -u root -p gastrack < db/patch_restock_confidence.sql
+mysql -u root -p gastrack < db/patch_product_sku.sql
 
 npm run seed
 npm run seed:products
 npm run seed:reports
 npm run seed:demo:jose
-
 npm run dev
+```
 
-#another terminal from root folder, note: if "python -m venv venv" doesn't work, try: py -m venv venv
-cd ML
+**Second terminal (ML service)**
+
+```
+cd LPG_Capstone\ML
 python -m venv venv
-venv\Scripts\activate
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python train_model.py
 python serve.py
+```
+
+**Third terminal (frontend)**
+
+```
+cd LPG_Capstone
+npm run dev
+```
