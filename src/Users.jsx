@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Search,
   ChevronDown,
@@ -13,9 +13,27 @@ import {
 import AddUserModal from "./AddUserModal";
 import { isVisibleWarehouseName } from "./utils/warehouseFilters";
 import { apiRequest } from "./api";
+import { formatTimestampManila } from "./utils/datetime";
 import "./Users.css";
 
 const PAGE_SIZE = 10;
+const ACTIVITY_PAGE_SIZE = 7;
+
+function getPaginationGroup(currentPage, totalPages, maxVisible = 6) {
+  let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+  let end = start + maxVisible - 1;
+
+  if (end > totalPages) {
+    end = totalPages;
+    start = Math.max(1, end - maxVisible + 1);
+  }
+
+  const pages = [];
+  for (let i = start; i <= end; i += 1) {
+    pages.push(i);
+  }
+  return pages;
+}
 
 const ROLE_OPTIONS = [
   "Administrator",
@@ -101,6 +119,7 @@ function ViewUserModal({ user, onClose }) {
 export default function Users() {
   const [users, setUsers] = useState([]);
   const [activityLog, setActivityLog] = useState([]);
+  const [activityTotal, setActivityTotal] = useState(0);
   const [activeTab, setActiveTab] = useState("users");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
@@ -130,16 +149,32 @@ export default function Users() {
       .finally(() => setIsLoading(false));
   };
 
-  const loadActivityLog = () => {
-    apiRequest("/users/activity-log")
-      .then(setActivityLog)
+  const loadActivityLog = useCallback(({ page: targetPage = activityPage, search = activitySearchTerm } = {}) => {
+    const params = new URLSearchParams({
+      page: String(targetPage),
+      pageSize: String(ACTIVITY_PAGE_SIZE),
+    });
+    if (search) params.set("search", search);
+
+    apiRequest("/users/activity-log?" + params.toString())
+      .then((data) => {
+        setActivityLog(data.rows || []);
+        setActivityTotal(Number(data.total || 0));
+        const safePage = Math.max(1, Number(data.page) || 1);
+        if (safePage !== activityPage) {
+          setActivityPage(safePage);
+        }
+      })
       .catch((err) => setLoadError(err.message || "Failed to load activity log."));
-  };
+  }, [activityPage, activitySearchTerm]);
 
   useEffect(() => {
     loadUsers();
-    loadActivityLog();
   }, []);
+
+  useEffect(() => {
+    loadActivityLog();
+  }, [loadActivityLog]);
 
   const roles = useMemo(() => {
     const existing = new Set(users.map((u) => u.role).filter(Boolean));
@@ -175,19 +210,8 @@ export default function Users() {
     setPage(p);
   };
 
-  const filteredActivity = useMemo(() => {
-    return activityLog.filter((entry) => {
-      const term = activitySearchTerm.toLowerCase();
-      return !term || entry.name.toLowerCase().includes(term) || String(entry.userId).includes(term);
-    });
-  }, [activityLog, activitySearchTerm]);
-
-  const activityTotalPages = Math.max(1, Math.ceil(filteredActivity.length / PAGE_SIZE));
+  const activityTotalPages = Math.max(1, Math.ceil(activityTotal / ACTIVITY_PAGE_SIZE));
   const activityCurrentPage = Math.min(activityPage, activityTotalPages);
-  const paginatedActivity = filteredActivity.slice(
-    (activityCurrentPage - 1) * PAGE_SIZE,
-    activityCurrentPage * PAGE_SIZE
-  );
   const goToActivityPage = (p) => {
     if (p < 1 || p > activityTotalPages) return;
     setActivityPage(p);
@@ -334,13 +358,14 @@ export default function Users() {
               </table>
 
               {/* Pagination */}
-              <div className="users-pagination">
+              <div className="users-pagination" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <button
                   type="button"
                   className="page-btn"
                   onClick={() => goToPage(currentPage - 1)}
                   disabled={currentPage === 1}
                   aria-label="Previous page"
+                  style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
                 >
                   <ChevronLeft size={16} />
                 </button>
@@ -360,6 +385,7 @@ export default function Users() {
                   onClick={() => goToPage(currentPage + 1)}
                   disabled={currentPage === totalPages}
                   aria-label="Next page"
+                  style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
                 >
                   <ChevronRight size={16} />
                 </button>
@@ -384,7 +410,15 @@ export default function Users() {
 
             {/* Table */}
             <div className="users-table-wrap">
-              <table className="users-table">
+              <table className="users-table activity-log-table">
+                <colgroup>
+                  <col style={{ width: "12%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "14%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "22%" }} />
+                  <col style={{ width: "14%" }} />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>User ID</th>
@@ -396,17 +430,17 @@ export default function Users() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paginatedActivity.map((entry) => (
+                  {activityLog.map((entry) => (
                     <tr key={entry.id}>
-                      <td>{entry.userId}</td>
-                      <td>{entry.name}</td>
-                      <td>{entry.role}</td>
-                      <td>{entry.module}</td>
-                      <td>{entry.action}{entry.description ? ` — ${entry.description}` : ""}</td>
-                      <td>{new Date(entry.datetime).toLocaleString()}</td>
+                      <td className="activity-log-cell-id">{entry.userId}</td>
+                      <td className="activity-log-cell-name">{entry.name}</td>
+                      <td className="activity-log-cell-role">{entry.role}</td>
+                      <td className="activity-log-cell-module" title={entry.module}>{entry.module}</td>
+                      <td className="activity-log-cell-action" title={`${entry.action}${entry.description ? ` — ${entry.description}` : ""}`}>{entry.action}{entry.description ? ` — ${entry.description}` : ""}</td>
+                      <td className="activity-log-cell-date">{formatTimestampManila(entry.datetime)}</td>
                     </tr>
                   ))}
-                  {paginatedActivity.length === 0 && (
+                  {activityLog.length === 0 && (
                     <tr>
                       <td colSpan={6} className="no-results-cell">
                         No activity matches your search.
@@ -417,22 +451,32 @@ export default function Users() {
               </table>
 
               {/* Pagination */}
-              <div className="users-pagination">
+              <div className="users-pagination" style={{ display: "flex", gap: "6px", alignItems: "center" }}>
                 <button
                   type="button"
                   className="page-btn"
                   onClick={() => goToActivityPage(activityCurrentPage - 1)}
                   disabled={activityCurrentPage === 1}
                   aria-label="Previous page"
+                  style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
                 >
                   <ChevronLeft size={16} />
                 </button>
-                {Array.from({ length: activityTotalPages }, (_, i) => i + 1).map((p) => (
+                {getPaginationGroup(activityCurrentPage, activityTotalPages, 6).map((p) => (
                   <button
                     key={p}
                     type="button"
                     className={`page-btn ${p === activityCurrentPage ? "active" : ""}`}
                     onClick={() => goToActivityPage(p)}
+                    style={{
+                      borderRadius: "8px",
+                      padding: "8px 14px",
+                      border: "1px solid #d1d5db",
+                      background: p === activityCurrentPage ? "#1e3a8a" : "#fff",
+                      color: p === activityCurrentPage ? "#fff" : "#1f2937",
+                      fontWeight: "600",
+                      cursor: "pointer",
+                    }}
                   >
                     {p}
                   </button>
@@ -443,6 +487,7 @@ export default function Users() {
                   onClick={() => goToActivityPage(activityCurrentPage + 1)}
                   disabled={activityCurrentPage === activityTotalPages}
                   aria-label="Next page"
+                  style={{ borderRadius: "8px", padding: "8px 12px", border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" }}
                 >
                   <ChevronRight size={16} />
                 </button>
@@ -469,6 +514,8 @@ export default function Users() {
     </div>
   );
 }
+
+
 
 
 

@@ -312,3 +312,27 @@
   color: #9ca3af;
   border: 1px solid #f0f0f0;
 }
+
+.activity-log-table {
+  table-layout: fixed;
+  min-width: 1120px;
+}
+
+.activity-log-table thead th,
+.activity-log-table tbody td {
+  vertical-align: top;
+}
+
+.activity-log-cell-id,
+.activity-log-cell-date {
+  white-space: nowrap;
+}
+
+.activity-log-cell-module,
+.activity-log-cell-action,
+.activity-log-cell-name,
+.activity-log-cell-role {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}

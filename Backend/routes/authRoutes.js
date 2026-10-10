@@ -52,7 +52,7 @@ router.post(
     const userActivityId = generateId("UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, Description)
-       VALUES (:userActivityId, :userId, 'Login', 'Auth', 'User logged in')`,
+       VALUES (:userActivityId, :userId, 'Login', 'Users — Authentication', 'User logged in')`,
       { userActivityId, userId: user.UserID }
     );
 
@@ -183,7 +183,7 @@ router.post(
       // 6. Log User Activity
       await conn.query(
         `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, Description)
-         VALUES (:userActivityId, :userId, 'Create', 'Auth', 'Company registered and admin account created')`,
+         VALUES (:userActivityId, :userId, 'Create', 'Users — Authentication', 'Company registered and admin account created')`,
         { userActivityId, userId }
       );
 
@@ -338,7 +338,7 @@ router.post(
       const userActivityId = generateId("UA");
       await conn.query(
         `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, Description)
-         VALUES (:userActivityId, :userId, 'Update', 'Auth', 'Password reset via email link')`,
+         VALUES (:userActivityId, :userId, 'Update', 'Users — Authentication', 'Password reset via email link')`,
         { userActivityId, userId: record.UserID }
       );
 

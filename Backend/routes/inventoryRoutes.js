@@ -891,7 +891,7 @@ router.delete(
         const userActivityId = await nextId(conn, "UserActivity", "UserActivityID", "UA");
         await conn.query(
           `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-           VALUES (:userActivityId, :userId, 'Delete', 'Inventory', :recordId, :description)`,
+           VALUES (:userActivityId, :userId, 'Delete', 'Inventory — Inventory Transactions', :recordId, :description)`,
           {
             userActivityId,
             userId: req.user.userId,
@@ -913,6 +913,7 @@ router.delete(
 );
 
 module.exports = router;
+
 
 
 

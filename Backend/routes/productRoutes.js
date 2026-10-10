@@ -171,7 +171,7 @@ router.post(
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userActivityId, :userId, 'Create', 'Products', :recordId, 'Created a new product')`,
+       VALUES (:userActivityId, :userId, 'Create', 'Products — Product Management', :recordId, 'Created a new product')`,
       { userActivityId, userId: req.user.userId, recordId: productId }
     );
 
@@ -212,7 +212,7 @@ router.put(
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userActivityId, :userId, 'Update', 'Products', :recordId, 'Updated a product')`,
+       VALUES (:userActivityId, :userId, 'Update', 'Products — Product Management', :recordId, 'Updated a product')`,
       { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 
@@ -235,7 +235,7 @@ router.delete(
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userActivityId, :userId, 'Delete', 'Products', :recordId, 'Deactivated a product')`,
+       VALUES (:userActivityId, :userId, 'Delete', 'Products — Product Management', :recordId, 'Deactivated a product')`,
       { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 

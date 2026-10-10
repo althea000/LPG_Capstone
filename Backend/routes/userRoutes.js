@@ -4,6 +4,7 @@ const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate, authorize } = require("../middleware/auth");
+const { mapActivityRow } = require("../utils/activityLog");
 
 async function nextId(conn, table, column, prefix, pad = 3) {
   const [rows] = await conn.query(
@@ -123,31 +124,60 @@ router.get(
   "/activity-log",
   asyncHandler(async (req, res) => {
     const { search, role, status } = req.query;
-    let sql = `
-      SELECT a.UserActivityID AS id, u.UserID AS userId, CONCAT(u.FirstName,' ',u.LastName) AS name,
-             r.RoleName AS role, u.Status AS status, a.Module AS module, a.ActivityType AS action,
-             a.Description AS description, a.ActivityDate AS datetime
-      FROM UserActivity a
-      JOIN User u ON u.UserID = a.UserID
-      JOIN Role r ON r.RoleID = u.RoleID
-      WHERE 1=1`;
-    const params = {};
+    const requestedPage = Math.max(1, Number(req.query.page) || 1);
+    const pageSize = Math.max(1, Math.min(100, Number(req.query.pageSize) || 7));
+
+    let whereClause = `
+      WHERE u.CompanyID = :companyId`;
+
+    const params = { companyId: req.user.companyId };
     if (search) {
-      sql += ` AND (u.FirstName LIKE :s OR u.LastName LIKE :s OR u.UserID = :sid)`;
+      whereClause += ` AND (u.FirstName LIKE :s OR u.LastName LIKE :s OR u.UserID LIKE :s OR a.Module LIKE :s OR a.ActivityType LIKE :s OR a.Description LIKE :s)`;
       params.s = `%${search}%`;
-      params.sid = Number(search) || 0;
     }
     if (role) {
-      sql += ` AND r.RoleName = :role`;
+      whereClause += ` AND r.RoleName = :role`;
       params.role = role;
     }
     if (status) {
-      sql += ` AND u.Status = :status`;
+      whereClause += ` AND u.Status = :status`;
       params.status = status;
     }
-    sql += ` ORDER BY a.ActivityDate DESC LIMIT 200`;
+
+    const [countRows] = await pool.query(
+      `SELECT COUNT(*) AS total
+       FROM UserActivity a
+       JOIN User u ON u.UserID = a.UserID
+       JOIN Role r ON r.RoleID = u.RoleID
+       ${whereClause}`,
+      params
+    );
+    const total = Number(countRows[0]?.total || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = Math.min(requestedPage, totalPages);
+    const offset = (page - 1) * pageSize;
+
+    const sql = `
+      SELECT a.UserActivityID AS id, u.UserID AS userId, CONCAT(u.FirstName,' ',u.LastName) AS name,
+             r.RoleName AS role, u.Status AS status, a.Module AS module, a.ActivityType AS action,
+             a.Description AS description, UNIX_TIMESTAMP(a.ActivityDate) AS datetime
+      FROM UserActivity a
+      JOIN User u ON u.UserID = a.UserID
+      JOIN Role r ON r.RoleID = u.RoleID
+      ${whereClause}
+      ORDER BY a.ActivityDate DESC
+      LIMIT :limit OFFSET :offset`;
+
+    params.limit = pageSize;
+    params.offset = offset;
     const [rows] = await pool.query(sql, params);
-    res.json(rows);
+
+    res.json({
+      rows: rows.map((row) => mapActivityRow(row, "datetime")),
+      total,
+      page,
+      pageSize,
+    });
   })
 );
 
@@ -213,7 +243,7 @@ router.post(
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userActivityId, :userId, 'Create', 'Users', :recordId, 'Created a new user')`,
+       VALUES (:userActivityId, :userId, 'Create', 'Users — User Management', :recordId, 'Created a new user')`,
       { userActivityId, userId: req.user.userId, recordId: userId }
     );
 
@@ -274,7 +304,7 @@ router.put(
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userActivityId, :userId, 'Update', 'Users', :recordId, 'Updated a user')`,
+       VALUES (:userActivityId, :userId, 'Update', 'Users — User Management', :recordId, 'Updated a user')`,
       { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 
@@ -298,7 +328,7 @@ router.delete(
     const userActivityId = await nextId(pool, "UserActivity", "UserActivityID", "UA");
     await pool.query(
       `INSERT INTO UserActivity (UserActivityID, UserID, ActivityType, Module, RecordID, Description)
-       VALUES (:userActivityId, :userId, 'Delete', 'Users', :recordId, 'Deactivated a user')`,
+       VALUES (:userActivityId, :userId, 'Delete', 'Users — User Management', :recordId, 'Deactivated a user')`,
       { userActivityId, userId: req.user.userId, recordId: req.params.id }
     );
 

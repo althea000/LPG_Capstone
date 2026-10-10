@@ -2,6 +2,7 @@
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const { authenticate } = require("../middleware/auth");
+const { mapActivityRow } = require("../utils/activityLog");
 
 router.use(authenticate);
 
@@ -83,13 +84,18 @@ router.get(
     `);
 
     // --- Recent activity ---
-    const [activityLog] = await pool.query(`
-      SELECT a.UserActivityID AS id, a.Description AS text, a.Module AS module,
-             a.ActivityType AS action, a.ActivityDate AS date
-      FROM UserActivity a
-      ORDER BY a.ActivityDate DESC
-      LIMIT 6
-    `);
+    const [activityLogRows] = await pool.query(
+      `SELECT a.UserActivityID AS id, a.Description AS text, a.Module AS module,
+              a.ActivityType AS action, UNIX_TIMESTAMP(a.ActivityDate) AS date
+       FROM UserActivity a
+       JOIN User u ON u.UserID = a.UserID
+       WHERE u.CompanyID = :companyId
+       ORDER BY a.ActivityDate DESC
+       LIMIT 6`,
+      { companyId: req.user.companyId }
+    );
+
+    const activityLog = activityLogRows.map((row) => mapActivityRow(row, "date"));
 
     res.json({
       salesPerformance: Number(salesToday.total),
@@ -102,7 +108,9 @@ router.get(
       restockSuggestions,
       activityLog: activityLog.map((a) => ({
         id: a.id,
-        text: a.text || `${a.action} in ${a.module}`,
+        module: a.module,
+        action: a.action,
+        text: a.text ? `${a.module}: ${a.text}` : `${a.action} in ${a.module}`,
         date: a.date,
       })),
     });
@@ -156,15 +164,18 @@ router.get(
     const limit = Number(req.query.limit) || 30;
     const [rows] = await pool.query(
       `SELECT a.UserActivityID AS id, CONCAT(u.FirstName,' ',u.LastName) AS user,
-              a.Module AS module, a.ActivityType AS action, a.Description AS description, a.ActivityDate AS date
+              a.Module AS module, a.ActivityType AS action, a.Description AS description,
+              UNIX_TIMESTAMP(a.ActivityDate) AS date
        FROM UserActivity a
        JOIN User u ON u.UserID = a.UserID
+       WHERE u.CompanyID = :companyId
        ORDER BY a.ActivityDate DESC
        LIMIT :limit`,
-      { limit }
+      { limit, companyId: req.user.companyId }
     );
-    res.json(rows);
+    res.json(rows.map((row) => mapActivityRow(row, "date")));
   })
 );
 
 module.exports = router;
+

@@ -165,7 +165,7 @@ export default function AddUserModal({ isOpen, onCancel, onSaved, selectedUser }
             <label className="field-label">Full Name</label>
             <input
               type="text"
-              placeholder="ABC Company"
+              placeholder="Juan Dela Cruz"
               className="field-input"
               value={form.fullName}
               onChange={(e) => updateField("fullName", e.target.value)}

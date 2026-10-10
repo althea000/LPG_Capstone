@@ -10,55 +10,22 @@ import {
 } from "recharts";
 import { ShoppingCart, X } from "lucide-react";
 import { apiRequest } from "./api";
+import {
+  formatRelativeTimeFromTimestamp,
+  formatTimestampManila,
+} from "./utils/datetime";
 import "./Dashboard.css";
 
 function formatPeso(amount) {
   return Number(amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function parseTimestamp(value) {
-  if (!value) return null;
-  if (value instanceof Date) return value;
-
-  if (typeof value === "string") {
-    let normalized = value.includes("T") ? value : value.replace(" ", "T");
-
-    const hasExplicitTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalized);
-    const hasTimePart = normalized.includes("T");
-
-    if (hasTimePart && !hasExplicitTimezone) {
-      normalized = `${normalized}Z`;
-    }
-
-    const parsed = new Date(normalized);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-  }
-
-  const fallback = new Date(value);
-  return Number.isNaN(fallback.getTime()) ? null : fallback;
-}
-
 function formatTimestamp(value) {
-  const date = parseTimestamp(value);
-  return date ? date.toLocaleString() : "—";
+  return formatTimestampManila(value);
 }
 
 function formatRelativeTime(value, nowTs = Date.now()) {
-  const date = parseTimestamp(value);
-  if (!date) return "";
-
-  const diffMs = Math.max(0, nowTs - date.getTime());
-  const seconds = Math.floor(diffMs / 1000);
-  if (seconds < 60) return "just now";
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
+  return formatRelativeTimeFromTimestamp(value, nowTs);
 }
 
 function formatTimestampWithRelative(value, nowTs = Date.now()) {
