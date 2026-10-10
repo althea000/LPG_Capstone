@@ -259,12 +259,12 @@ async function main() {
       { name: "Cylinder 11 kg", categoryId: cylinderCategoryId, supplierId: supplierA, unit: "kg", unitPrice: 921, costPrice: 870, reorderLevel: 50 },
       { name: "Cylinder 22 kg", categoryId: cylinderCategoryId, supplierId: supplierA, unit: "kg", unitPrice: 1726, costPrice: 1680, reorderLevel: 15 },
       { name: "Cylinder 50 kg", categoryId: cylinderCategoryId, supplierId: supplierA, unit: "kg", unitPrice: 3964, costPrice: 3890, reorderLevel: 10 },
-      { name: "LPG Hose Clamp", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "pcs", unitPrice: 90, costPrice: 65, reorderLevel: 30 },
-      { name: "LPG Hose Clamp with 1.5 meter Hose", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "set", unitPrice: 380, costPrice: 290, reorderLevel: 20 },
+      { name: "LPG Hose Clamp", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "piece", unitPrice: 90, costPrice: 65, reorderLevel: 30 },
+      { name: "LPG Hose Clamp with 1.5 meter Hose", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "piece", unitPrice: 380, costPrice: 290, reorderLevel: 20 },
       { name: "LPG Hose (Per Meter)", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "meter", unitPrice: 120, costPrice: 85, reorderLevel: 40 },
-      { name: "POL Regulator", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "pcs", unitPrice: 420, costPrice: 320, reorderLevel: 25 },
-      { name: "TPA Regulator", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "pcs", unitPrice: 450, costPrice: 340, reorderLevel: 25 },
-      { name: "Reyna Gas Stove", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "unit", unitPrice: 1650, costPrice: 1380, reorderLevel: 12 },
+      { name: "POL Regulator", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "piece", unitPrice: 420, costPrice: 320, reorderLevel: 25 },
+      { name: "TPA Regulator", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "piece", unitPrice: 450, costPrice: 340, reorderLevel: 25 },
+      { name: "Reyna Gas Stove", categoryId: accessoriesCategoryId, supplierId: supplierB, unit: "piece", unitPrice: 1650, costPrice: 1380, reorderLevel: 12 },
     ];
 
     const productMap = new Map(existingProducts.map((p) => [p.ProductName, p]));

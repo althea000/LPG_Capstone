@@ -1,4 +1,4 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const pool = require("../config/db");
 
@@ -11,6 +11,7 @@ async function seed() {
   // Drop existing tables
   await pool.query(`
     DROP TABLE IF EXISTS 
+      DeliveryVehicleRate, DocumentSequence, OrderSettlement, DeliveryAttempt, OrderStockAllocation,
       UserActivity, 
       DataActivityLog, 
       PurchaseOrderItem, 
@@ -526,6 +527,7 @@ async function seed() {
     VALUES ('CUST-001', NULL, 'Residential', 'Walk-in Customer', 'N/A', 'San Juan City, Metro Manila', 'Active', '2023-09-20 09:00:00', '2023-09-20 09:00:00')
   `);
 
+  await require("./migratePosReceipts")(pool);
   console.log("Database schema creation and seeding complete.");
   process.exit(0);
 }

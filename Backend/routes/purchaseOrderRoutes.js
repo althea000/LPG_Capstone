@@ -61,9 +61,9 @@ router.get(
     );
     if (!poRows[0]) throw new ApiError(404, "Purchase order not found.");
     const [items] = await pool.query(
-      `SELECT poi.ProductID AS productId, p.ProductName AS productName, poi.Quantity AS qty,
+      `SELECT poi.ProductID AS productId, COALESCE(p.ProductName, poi.ProductNameSnapshot, 'Deleted Product') AS productName, poi.Quantity AS qty,
               poi.UnitCost AS costPrice, poi.Subtotal AS subtotal
-       FROM PurchaseOrderItem poi JOIN Product p ON p.ProductID = poi.ProductID
+       FROM PurchaseOrderItem poi LEFT JOIN Product p ON p.ProductID = poi.ProductID
        WHERE poi.PurchaseOrderID = :id`,
       { id: req.params.id }
     );

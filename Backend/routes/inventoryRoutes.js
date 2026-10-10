@@ -5,6 +5,8 @@ const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
 const { authenticate } = require("../middleware/auth");
 const { parseCsv } = require("../utils/csv");
+const {tankSql}=require('../services/cylinderStock');
+const {transaction,id,isManager}=require('../services/orderLifecycle');
 
 async function nextId(conn, table, column, prefix, pad = 3) {
   const normalizedPrefix = String(prefix || "").toUpperCase();
@@ -156,6 +158,28 @@ async function ensureReferenceNotAlreadyUsed(conn, { warehouseId, referenceNo, t
   }
 }
 
+router.post('/:id/cylinders',asyncHandler(async(req,res)=>{
+  if(!isManager(req.user)) throw new ApiError(403,'A manager or supervisor must record cylinder stock changes.');
+  const {action,quantity,remarks}=req.body;
+  const qty=Number(quantity);
+  if(!['refill','set-empty'].includes(action) || !Number.isSafeInteger(qty) || qty<0 || (action==='refill' && qty===0)) throw new ApiError(400,'Enter a valid whole-number cylinder quantity.');
+  const notes=String(remarks || '').trim();
+  if(notes.length>255) throw new ApiError(400,'Remarks must be at most 255 characters.');
+  if(action==='set-empty' && !notes) throw new ApiError(400,'Enter remarks for the empty stock adjustment.');
+  await transaction(async conn=>{
+    const [[stock]]=await conn.query(`SELECT i.*,${tankSql} AS isTank FROM Inventory i JOIN Warehouse w ON w.WarehouseID=i.WarehouseID JOIN Product p ON p.ProductID=i.ProductID JOIN Category c ON c.CategoryID=p.CategoryID WHERE i.InventoryID=:id AND w.CompanyID=:company FOR UPDATE`,{id:req.params.id,company:req.user.companyId});
+    if(!stock) throw new ApiError(404,'Inventory record not found.');
+    if(!stock.isTank) throw new ApiError(400,'This product does not track cylinders.');
+    if(req.body.expectedEmptyStock===undefined || Number(req.body.expectedEmptyStock)!==Number(stock.EmptyStock)) throw new ApiError(409,'Empty stock has changed. Reload inventory and try again.');
+    if(action==='refill' && qty>Number(stock.EmptyStock)) throw new ApiError(409,'There are not enough empty tanks to refill.');
+    const difference=action==='refill' ? -qty : qty-Number(stock.EmptyStock);
+    if(!difference)return;
+    await conn.query(`UPDATE Inventory SET EmptyStock=EmptyStock+:difference,StockOnHand=StockOnHand+:filled WHERE InventoryID=:id`,{difference,filled:action==='refill'?qty:0,id:stock.InventoryID});
+    await conn.query(`INSERT INTO InventoryTransaction(TransactionID,InventoryID,UserID,TransactionType,Quantity,Reason,Remarks) VALUES (:id,:inventory,:user,:type,:qty,:reason,:notes)`,{id:id('T'),inventory:stock.InventoryID,user:req.user.userId,type:action==='refill'?'Refill':difference>0?'Empty Stock In':'Empty Stock Out',qty:Math.abs(difference),reason:action==='refill'?'Refill':'Adjustment',notes});
+  });
+  res.json({message:action==='refill'?'Empty tanks refilled and added to filled stock.':'Empty stock updated.'});
+}));
+
 function statusFor(stockOnHand, reorderLevel) {
   const currentStock = Number(stockOnHand || 0);
   const threshold = Number(reorderLevel || 0);
@@ -232,12 +256,13 @@ router.get(
     let sql = `
       SELECT i.InventoryID AS inventoryId, i.ProductID AS productId, p.ProductName AS productName,
              i.WarehouseID AS warehouseId, w.WarehouseName AS warehouse,
-             i.StockOnHand AS currentStock, p.ReorderLevel AS reorderLimit, i.LastUpdated AS lastUpdated
+             i.StockOnHand AS currentStock, i.EmptyStock AS emptyStock, ${tankSql} AS isTank, p.ReorderLevel AS reorderLimit, i.LastUpdated AS lastUpdated
       FROM Inventory i
       JOIN Product p ON p.ProductID = i.ProductID
+      JOIN Category c ON c.CategoryID = p.CategoryID
       JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
-      WHERE 1=1`;
-    const params = {};
+      WHERE w.CompanyID=:company`;
+    const params = {company:req.user.companyId};
     if (warehouseId) {
       sql += ` AND i.WarehouseID = :warehouseId`;
       params.warehouseId = warehouseId;
@@ -259,25 +284,26 @@ router.get(
   "/transactions",
   asyncHandler(async (req, res) => {
     const [rows] = await pool.query(`
-      SELECT t.TransactionID AS transactionId, p.ProductID AS productId, p.ProductName AS productName,
+      SELECT t.TransactionID AS transactionId, p.ProductID AS productId, COALESCE(p.ProductName, t.ProductNameSnapshot, 'Deleted Product') AS productName,
              w.WarehouseName AS warehouse, t.TransactionType AS type, t.Quantity AS quantity,
              t.Reason AS reason, t.ReferenceNo AS reference, t.TransactionDate AS date,
              CONCAT(u.FirstName, ' ', u.LastName) AS user
       FROM InventoryTransaction t
       JOIN Inventory i ON i.InventoryID = t.InventoryID
-      JOIN Product p ON p.ProductID = i.ProductID
+      LEFT JOIN Product p ON p.ProductID = i.ProductID
       JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
       JOIN User u ON u.UserID = t.UserID
+      WHERE w.CompanyID=:company
       ORDER BY t.TransactionDate DESC
       LIMIT 200
-    `);
+    `,{company:req.user.companyId});
     res.json(rows);
   })
 );
 
 async function getOrCreateInventory(conn, warehouseId, productId) {
   const [rows] = await conn.query(
-    `SELECT InventoryID, StockOnHand FROM Inventory WHERE WarehouseID = :warehouseId AND ProductID = :productId FOR UPDATE`,
+    `SELECT InventoryID, StockOnHand, EmptyStock FROM Inventory WHERE WarehouseID = :warehouseId AND ProductID = :productId FOR UPDATE`,
     { warehouseId, productId }
   );
   if (rows[0]) return rows[0];
@@ -287,13 +313,25 @@ async function getOrCreateInventory(conn, warehouseId, productId) {
      VALUES (:inventoryId, :warehouseId, :productId, 0)`,
     { inventoryId, warehouseId, productId }
   );
-  return { InventoryID: inventoryId, StockOnHand: 0 };
+  return { InventoryID: inventoryId, StockOnHand: 0, EmptyStock: 0 };
+}
+
+function stockColumn(stockType='filled') {
+  if(!['filled','empty'].includes(stockType)) throw new ApiError(400,'Select filled or empty stock.');
+  return stockType==='empty'?'EmptyStock':'StockOnHand';
+}
+async function validateStockItem(conn,user,warehouseId,item,column){
+  if(!item.productId || !Number.isSafeInteger(Number(item.quantity)) || Number(item.quantity)<=0) throw new ApiError(400,'Stock quantities must be positive whole numbers.');
+  const [[valid]]=await conn.query(`SELECT ${tankSql} AS isTank FROM Warehouse w JOIN Product p ON p.ProductID=:product JOIN Category c ON c.CategoryID=p.CategoryID WHERE w.WarehouseID=:warehouse AND w.CompanyID=:company`,{product:item.productId,warehouse:warehouseId,company:user.companyId});
+  if(!valid) throw new ApiError(400,'Select a valid product and a warehouse from your company.');
+  if(column==='EmptyStock' && !valid.isTank) throw new ApiError(400,'Empty stock is only available for cylinder products.');
 }
 
 // POST /inventory/stock-in  { warehouseId, referenceNo, items:[{productId, quantity}] }
 router.post(
   "/stock-in",
   asyncHandler(async (req, res) => {
+    const column=stockColumn(req.body.stockType);
     const { warehouseId, referenceNo, reason, remarks, items } = req.body;
     if (!warehouseId || !Array.isArray(items) || !items.length) {
       throw new ApiError(400, "warehouseId and at least one item are required.");
@@ -320,21 +358,23 @@ router.post(
       await ensureReferenceNotAlreadyUsed(conn, {
         warehouseId,
         referenceNo: normalizedReferenceNo,
-        transactionType: "Stock In",
+        transactionType: column === 'EmptyStock' ? 'Empty Stock In' : 'Stock In',
       });
 
       for (const item of normalizedItems) {
+        await validateStockItem(conn,req.user,warehouseId,item,column);
         const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
-        await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :id`, {
+        await conn.query(`UPDATE Inventory SET ${column} = ${column} + :qty WHERE InventoryID = :id`, {
           qty: item.quantity,
           id: inv.InventoryID,
         });
         await conn.query(
           `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:transactionId, :invId, :userId, 'Stock In', :qty, :reason, :ref, :remarks)`,
+           VALUES (:transactionId, :invId, :userId, :type, :qty, :reason, :ref, :remarks)`,
           {
             transactionId,
+            type:column==='EmptyStock'?'Empty Stock In':'Stock In',
             invId: inv.InventoryID,
             userId: req.user.userId,
             qty: item.quantity,
@@ -362,6 +402,7 @@ router.post(
 router.post(
   "/stock-out",
   asyncHandler(async (req, res) => {
+    const column=stockColumn(req.body.stockType);
     const { warehouseId, referenceNo, reason, remarks, items } = req.body;
     if (!warehouseId || !Array.isArray(items) || !items.length) {
       throw new ApiError(400, "warehouseId and at least one item are required.");
@@ -388,24 +429,26 @@ router.post(
       await ensureReferenceNotAlreadyUsed(conn, {
         warehouseId,
         referenceNo: normalizedReferenceNo,
-        transactionType: "Stock Out",
+        transactionType: column === 'EmptyStock' ? 'Empty Stock Out' : 'Stock Out',
       });
 
       for (const item of normalizedItems) {
+        await validateStockItem(conn,req.user,warehouseId,item,column);
         const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         const inv = await getOrCreateInventory(conn, warehouseId, item.productId);
-        if (inv.StockOnHand < item.quantity) {
+        if (Number(inv[column]) < Number(item.quantity)) {
           throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
         }
-        await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`, {
+        await conn.query(`UPDATE Inventory SET ${column} = ${column} - :qty WHERE InventoryID = :id`, {
           qty: item.quantity,
           id: inv.InventoryID,
         });
         await conn.query(
           `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, :reason, :ref, :remarks)`,
+           VALUES (:transactionId, :invId, :userId, :type, :qty, :reason, :ref, :remarks)`,
           {
             transactionId,
+            type:column==='EmptyStock'?'Empty Stock Out':'Stock Out',
             invId: inv.InventoryID,
             userId: req.user.userId,
             qty: item.quantity,
@@ -434,6 +477,8 @@ router.post(
   "/transfer",
   asyncHandler(async (req, res) => {
     const { fromWarehouseId, toWarehouseId, status, remarks, items } = req.body;
+    const stockType=req.body.stockType || "filled";
+    const column=stockColumn(stockType);
 
     if (!fromWarehouseId || !toWarehouseId) {
       throw new ApiError(400, "fromWarehouseId and toWarehouseId are required.");
@@ -464,10 +509,11 @@ router.post(
 
       const transferId = await nextId(conn, "Transfer", "TransferID", "TF");
       await conn.query(
-        `INSERT INTO Transfer (TransferID, FromWarehouseID, ToWarehouseID, UserID, Status, Remarks)
-         VALUES (:transferId, :fromWarehouseId, :toWarehouseId, :userId, :status, :remarks)`,
+        `INSERT INTO Transfer (TransferID, FromWarehouseID, ToWarehouseID, UserID, Status, Remarks, StockType)
+         VALUES (:transferId, :fromWarehouseId, :toWarehouseId, :userId, :status, :remarks, :stockType)`,
         {
           transferId,
+          stockType,
           fromWarehouseId,
           toWarehouseId,
           userId: req.user.userId,
@@ -484,19 +530,20 @@ router.post(
           throw new ApiError(400, "Each transfer item requires a valid productId and quantity.");
         }
 
+        await validateStockItem(conn,req.user,fromWarehouseId,{productId,quantity},column);
         const fromInv = await getOrCreateInventory(conn, fromWarehouseId, productId);
-        if (Number(fromInv.StockOnHand) < quantity) {
+        if (Number(fromInv[column]) < quantity) {
           throw new ApiError(400, `Insufficient stock for product ${productId} in source warehouse.`);
         }
 
         const toInv = await getOrCreateInventory(conn, toWarehouseId, productId);
 
         await conn.query(
-          `UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :inventoryId`,
+          `UPDATE Inventory SET ${column} = ${column} - :qty WHERE InventoryID = :inventoryId`,
           { qty: quantity, inventoryId: fromInv.InventoryID }
         );
         await conn.query(
-          `UPDATE Inventory SET StockOnHand = StockOnHand + :qty WHERE InventoryID = :inventoryId`,
+          `UPDATE Inventory SET ${column} = ${column} + :qty WHERE InventoryID = :inventoryId`,
           { qty: quantity, inventoryId: toInv.InventoryID }
         );
 
@@ -510,9 +557,10 @@ router.post(
         const outTxId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         await conn.query(
           `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:transactionId, :inventoryId, :userId, 'Stock Out', :quantity, 'Transfer', :referenceNo, :remarks)`,
+           VALUES (:transactionId, :inventoryId, :userId, :type, :quantity, 'Transfer', :referenceNo, :remarks)`,
           {
             transactionId: outTxId,
+            type:stockType==="empty"?"Empty Stock Out":"Stock Out",
             inventoryId: fromInv.InventoryID,
             userId: req.user.userId,
             quantity,
@@ -524,9 +572,10 @@ router.post(
         const inTxId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
         await conn.query(
           `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo, Remarks)
-           VALUES (:transactionId, :inventoryId, :userId, 'Stock In', :quantity, 'Transfer', :referenceNo, :remarks)`,
+           VALUES (:transactionId, :inventoryId, :userId, :type, :quantity, 'Transfer', :referenceNo, :remarks)`,
           {
             transactionId: inTxId,
+            type:stockType==="empty"?"Empty Stock In":"Stock In",
             inventoryId: toInv.InventoryID,
             userId: req.user.userId,
             quantity,
@@ -552,7 +601,7 @@ router.get(
   "/transfers",
   asyncHandler(async (req, res) => {
     const [rows] = await pool.query(
-      `SELECT t.TransferID AS transferId,
+      `SELECT t.TransferID AS transferId,t.StockType AS stockType,
               t.FromWarehouseID AS fromWarehouseId,
               fw.WarehouseName AS fromWarehouse,
               t.ToWarehouseID AS toWarehouseId,
@@ -564,14 +613,14 @@ router.get(
               t.Remarks AS remarks,
               td.TransferDetailID AS transferDetailId,
               td.ProductID AS productId,
-              p.ProductName AS productName,
+              COALESCE(p.ProductName, td.ProductNameSnapshot, 'Deleted Product') AS productName,
               td.Quantity AS quantity
        FROM Transfer t
        JOIN Warehouse fw ON fw.WarehouseID = t.FromWarehouseID
        JOIN Warehouse tw ON tw.WarehouseID = t.ToWarehouseID
        JOIN User u ON u.UserID = t.UserID
        JOIN TransferDetail td ON td.TransferID = t.TransferID
-       JOIN Product p ON p.ProductID = td.ProductID
+       LEFT JOIN Product p ON p.ProductID = td.ProductID
        WHERE fw.CompanyID = :companyId OR tw.CompanyID = :companyId
        ORDER BY t.TransferDate DESC, td.TransferDetailID ASC`,
       { companyId: req.user.companyId }
@@ -592,6 +641,7 @@ router.get(
           user: row.user,
           transferDate: row.transferDate,
           status: row.status,
+          stockType: row.stockType,
           remarks: row.remarks,
           items: [],
         };
@@ -778,13 +828,14 @@ router.get(
     const [rows] = await pool.query(
       `SELECT i.InventoryID AS inventoryId, i.ProductID AS productId, p.ProductName AS productName,
               i.WarehouseID AS warehouseId, w.WarehouseName AS warehouse,
-              i.StockOnHand AS currentStock, p.ReorderLevel AS reorderLimit,
+              i.StockOnHand AS currentStock, i.EmptyStock AS emptyStock, ${tankSql} AS isTank, p.ReorderLevel AS reorderLimit,
               p.UnitPrice AS unitPrice, p.CostPrice AS costPrice, i.LastUpdated AS lastUpdated
        FROM Inventory i
        JOIN Product p ON p.ProductID = i.ProductID
+       JOIN Category c ON c.CategoryID = p.CategoryID
        JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
-       WHERE i.InventoryID = :id`,
-      { id: req.params.id }
+       WHERE i.InventoryID = :id AND w.CompanyID=:company`,
+      { id: req.params.id,company:req.user.companyId }
     );
     if (!rows[0]) throw new ApiError(404, "Inventory record not found.");
     res.json({ ...rows[0], status: statusFor(rows[0].currentStock, rows[0].reorderLimit) });
@@ -854,11 +905,11 @@ router.delete(
   asyncHandler(async (req, res) => {
     const force = req.query.force === "true";
 
-    const [rows] = await pool.query(`SELECT StockOnHand FROM Inventory WHERE InventoryID = :id`, {
+    const [rows] = await pool.query(`SELECT StockOnHand,EmptyStock FROM Inventory WHERE InventoryID = :id`, {
       id: req.params.id,
     });
     if (!rows[0]) throw new ApiError(404, "Inventory record not found.");
-    if (rows[0].StockOnHand > 0) {
+    if (rows[0].StockOnHand > 0 || rows[0].EmptyStock > 0) {
       throw new ApiError(
         400,
         "This product still has stock on hand. Adjust the quantity to 0 before deleting the record."

@@ -282,6 +282,50 @@ input:checked + .toggle-slider:before {
 }
 
 /* Alignment utilities */
+.delivery-rates-toolbar {
+  margin-bottom: 16px;
+}
+
+.delivery-rates-add {
+  gap: 8px;
+}
+
+.delivery-rates-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.delivery-rates-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.delivery-rates-action.edit {
+  color: #22c55e;
+}
+
+.delivery-rates-action.remove {
+  color: #ef4444;
+}
+
+.delivery-rates-action:hover {
+  background: #f1f5f9;
+}
+
+.delivery-rates-action:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
 .flex-bottom-right {
   display: flex;
   justify-content: flex-end;

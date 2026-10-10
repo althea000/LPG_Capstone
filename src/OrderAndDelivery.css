@@ -1,4 +1,4 @@
-﻿/* ─── Page Container ──────────────────────────────────────── */
+/* ─── Page Container ──────────────────────────────────────── */
 .od-page {
   min-height: 100vh;
   background: #f4f6fa;
@@ -394,3 +394,34 @@
     font-size: 13px;
   }
 }
+.od-tab-count {display:inline-block;min-width:24px;margin-left:6px;padding:2px 7px;border-radius:12px;background:#e2e8f0;color:#334155;font-size:12px;}
+.od-cell-detail {display:block;margin-top:4px;color:#64748b;font-size:12px;white-space:normal;}
+.od-lifecycle-actions {flex-wrap:wrap;min-width:160px;}
+.od-lifecycle-actions .od-btn {font-size:12px;padding:6px 9px;}
+.od-delivery-table .od-actions {
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  margin: 0 auto;
+}
+.od-delivery-table .od-actions > button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.od-delivery-table .od-lifecycle-actions {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 160px;
+}
+.od-delivery-table .od-lifecycle-actions > .od-btn {
+  width: 100%;
+  white-space: normal;
+}
+.od-error {color:#dc2626;font-weight:600;}
+.od-attempt-log {padding:8px;background:#f8fafc;border-radius:6px;font-size:13px;}
+.od-check {display:flex;align-items:center;gap:8px;margin:12px 0;}
+.od-check input {width:auto !important;}
+.od-modal form input,.od-modal form textarea,.od-modal form select {max-width:100%;}
+@media(max-width:700px){.od-page{padding:20px 12px;}.od-tabs{gap:12px;}.od-actions{gap:5px;}}

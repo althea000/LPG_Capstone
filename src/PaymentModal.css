@@ -149,3 +149,42 @@
   background: #93c5fd;
   cursor: not-allowed;
 }
+.empty-cylinder-returns {
+  margin: 16px 0;
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+.empty-cylinder-returns legend {
+  padding: 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.empty-cylinder-returns label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.empty-cylinder-returns small {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+}
+.empty-cylinder-returns input {
+  width: 72px;
+  flex-shrink: 0;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+}
+.empty-cylinder-returns .empty-cylinder-checkbox {
+  justify-content: flex-start;
+}
+.empty-cylinder-returns input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}

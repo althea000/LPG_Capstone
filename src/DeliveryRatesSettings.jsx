@@ -1,0 +1,26 @@
+import {useEffect,useState} from 'react';
+import {apiRequest} from './api';
+import {Plus, Pencil, Trash2} from 'lucide-react';
+import {canonicalRole} from './rbac';
+const peso=n=>`₱${Number(n).toLocaleString('en-PH',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+export default function DeliveryRatesSettings(){
+  const canManage=['administrator','manager','operations supervisor'].includes(canonicalRole(JSON.parse(localStorage.getItem('user')||'{}').role));
+  const [remove,setRemove]=useState(null);
+  const [rates,setRates]=useState([]),[edit,setEdit]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+  const load=()=>apiRequest('/delivery-rates').then(setRates).catch(e=>setError(e.message));
+  useEffect(()=>{load();},[]);
+  async function save(e){e.preventDefault();setBusy(true);setError('');try{await apiRequest(edit.id?`/delivery-rates/${edit.id}`:'/delivery-rates',{method:edit.id?'PUT':'POST',body:JSON.stringify(edit)});await load();setEdit(null);}catch(err){setError(err.message);}finally{setBusy(false);}}
+  async function removeVehicle(){setBusy(true);setError('');try{await apiRequest(`/delivery-rates/${remove.id}`,{method:'DELETE'});await load();setRemove(null);}catch(err){setError(err.message);}finally{setBusy(false);}}
+  return <section className="settings-card"><h2 className="card-title">Delivery Fee — Vehicle Rate Matrix</h2><p>Rates applied after passing the free delivery threshold. Outside the free zone: base rate + rate per excess kilometre. Orders meeting the vehicle’s minimum subtotal receive free delivery.</p>
+    {error && <p role="alert" style={{color:'#dc2626'}}>{error}</p>}
+    {canManage && <div className="card-actions delivery-rates-toolbar"><button type="button" className="btn btn-primary delivery-rates-add" onClick={()=>{setError('');setEdit({name:'',capacity:'',maxWeight:'',baseRate:0,perKm:0,minSubtotal:0,freeDistance:5,enabled:true});}}><Plus size={18} aria-hidden="true" />Add Vehicle Type</button></div>}
+    <div style={{overflowX:'auto'}}><table style={{width:'100%',borderCollapse:'collapse'}}><thead><tr>{['Vehicle Type','Capacity','Base Rate (₱)','Per KM (₱)','Min. Subtotal For Free','Status','Actions'].map(h=><th key={h} style={{textAlign:'left',padding:10}}>{h}</th>)}</tr></thead><tbody>{rates.map(r=><tr key={r.id}>{[r.name,r.capacity,peso(r.baseRate),peso(r.perKm),Number(r.minSubtotal)>0?peso(r.minSubtotal):`None (Free ≤ ${r.freeDistance} km)`,r.enabled?'Enabled':'Disabled'].map((v,i)=><td key={i} style={{padding:10,borderTop:'1px solid #e5e7eb'}}>{v}</td>)}<td style={{padding:10,borderTop:'1px solid #e5e7eb'}}>{canManage && <div className="delivery-rates-actions"><button type="button" className="delivery-rates-action edit" title="Edit" aria-label={`Edit ${r.name}`} onClick={()=>{setError('');setEdit({...r,enabled:!!r.enabled});}}><Pencil size={18} aria-hidden="true" /></button> <button type="button" className="delivery-rates-action remove" title="Remove" aria-label={`Remove ${r.name}`} onClick={()=>{setError('');setRemove(r);}}><Trash2 size={18} aria-hidden="true" /></button></div>}</td></tr>)}</tbody></table></div>
+    {edit && <div className="od-modal-overlay open"><form className="od-modal" role="dialog" aria-modal="true" aria-label={edit.id?`Edit: ${edit.name}`:"Add Vehicle Type"} onSubmit={save}><h3>{edit.id?`Edit: ${edit.name}`:"Add Vehicle Type"}</h3>
+      {[['name','Vehicle Name / Class'],['capacity','Max Weight Capacity']].map(([key,label])=><label key={key} style={{display:'block',marginBottom:12}}>{label}<input required maxLength={100} value={edit[key]} onChange={e=>setEdit({...edit,[key]:e.target.value})} style={{display:'block',width:'100%'}}/></label>)}
+      {[['maxWeight','Capacity (kg)'],['baseRate','Base Rate (₱)'],['perKm','Rate Per KM (₱)'],['minSubtotal','Min Subtotal For Free (₱)'],['freeDistance','Free Delivery Distance (km)']].map(([key,label])=><label key={key} style={{display:'block',marginBottom:12}}>{label}<input type="number" required min="0" step={['maxWeight','freeDistance'].includes(key)?'0.1':'0.01'} value={edit[key]} onChange={e=>setEdit({...edit,[key]:e.target.value})} style={{display:'block',width:'100%'}}/></label>)}
+      <label><input type="checkbox" checked={edit.enabled} onChange={e=>setEdit({...edit,enabled:e.target.checked})}/>Enable this vehicle type in POS selection</label>
+      {error && <p role="alert">{error}</p>}<div className="od-modal-actions"><button type="button" className="od-btn od-btn-outline" disabled={busy} onClick={()=>setEdit(null)}>Cancel</button><button className="od-btn od-btn-primary" disabled={busy}>{busy?'Saving…':'Save'}</button></div>
+    </form></div>}
+    {remove && <div className="od-modal-overlay open"><div className="od-modal" role="dialog" aria-modal="true" aria-label="Remove Vehicle Type"><h3>Remove Vehicle Type</h3><p>Remove {remove.name} from the delivery vehicle selection?</p>{error && <p role="alert">{error}</p>}<div className="od-modal-actions"><button type="button" className="od-btn od-btn-outline" disabled={busy} onClick={()=>setRemove(null)}>Cancel</button><button type="button" className="od-btn od-btn-danger" disabled={busy} onClick={removeVehicle}>{busy?'Removing...':'Remove'}</button></div></div></div>}
+  </section>;
+}

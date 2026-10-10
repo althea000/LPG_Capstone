@@ -1,29 +1,35 @@
-﻿{
-    "name":  "gastrack-backend",
-    "version":  "1.0.0",
-    "type":  "commonjs",
-    "main":  "server.js",
-    "scripts":  {
-                    "start":  "node server.js",
-                    "dev":  "nodemon server.js",
-                    "seed":  "node db/seed.js",
-                    "seed:products":  "node db/seedProducts.js",
-                    "seed:reports":  "node db/seedReports.js",
-                    "seed:demo:jose":  "node db/seedJoseDemo.js",
-                    "seed:dashboard:history":  "node db/seedDashboardHistory.js"
-                },
-    "dependencies":  {
-                         "bcryptjs":  "^2.4.3",
-                         "cors":  "^2.8.5",
-                         "dotenv":  "^16.4.5",
-                         "exceljs":  "^3.4.0",
-                         "express":  "^4.19.2",
-                         "jsonwebtoken":  "^9.0.2",
-                         "mysql2":  "^3.10.0",
-                         "nodemailer":  "^10.0.10",
-                         "pdfkit":  "^0.15.0"
-                     },
-    "devDependencies":  {
-                            "nodemon":  "^3.1.4"
-                        }
+{
+  "name": "gastrack-backend",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node db/seed.js",
+    "seed:products": "node db/seedProducts.js",
+    "seed:reports": "node db/seedReports.js",
+    "seed:demo:jose": "node db/seedJoseDemo.js",
+    "seed:dashboard:history": "node db/seedDashboardHistory.js",
+    "migrate:products": "node db/migrateProductHistory.js",
+    "migrate:cylinders": "node db/migrateCylinderStock.js",
+    "migrate:orders": "node db/migrateOrderLifecycle.js",
+    "migrate:pos": "node db/migratePosReceipts.js",
+    "test:products": "node tests/productHistory.js",
+    "test:orders": "node tests/orderLifecycle.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "exceljs": "^3.4.0",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.10.0",
+    "nodemailer": "^10.0.10",
+    "pdfkit": "^0.15.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4"
+  }
 }

@@ -1,4 +1,4 @@
-﻿const router = require("express").Router();
+const router = require("express").Router();
 const pool = require("../config/db");
 const asyncHandler = require("../utils/asyncHandler");
 const ApiError = require("../utils/apiError");
@@ -55,13 +55,14 @@ router.get(
     const { search, cashier, status } = req.query;
     let sql = `
       SELECT s.SaleID AS id, s.SaleNo AS saleNo, s.SaleDate AS datetime, s.UserID AS cashier,
-             CONCAT(u.FirstName,' ',u.LastName) AS cashierName, s.OrderID AS orderId,
+             CONCAT(u.FirstName,' ',u.LastName) AS cashierName, s.OrderID AS orderRecordId, o.OrderNo AS orderId,
              o.OrderType AS type, o.OrderStatus AS status,
-             s.TotalAmount AS amount, s.SalesDiscount AS discount
+             COALESCE(c.CustomerName, ' — ') AS customerName, o.PaymentStatus AS paymentStatus, o.ResolutionAction AS resolutionAction, s.TotalAmount AS amount, s.SalesDiscount AS discount
       FROM Sales s
       JOIN User u ON u.UserID = s.UserID
       LEFT JOIN \`Order\` o ON o.OrderID = s.OrderID
-      WHERE 1=1`;
+      LEFT JOIN Customer c ON c.CustomerID=s.CustomerID
+      WHERE (o.OrderID IS NULL OR o.ArchivedAt IS NOT NULL)`;
     const params = {};
     if (search) {
       sql += ` AND s.SaleNo LIKE :s`;
@@ -91,225 +92,42 @@ router.get(
   asyncHandler(async (req, res) => {
     const [saleRows] = await pool.query(
       `SELECT s.SaleID AS id, s.SaleNo AS saleNo, s.SaleDate AS datetime, s.UserID AS cashier,
-              CONCAT(u.FirstName,' ',u.LastName) AS cashierName, s.OrderID AS orderId,
+              CONCAT(u.FirstName,' ',u.LastName) AS cashierName, s.OrderID AS orderRecordId, o.OrderNo AS orderId,
               o.OrderType AS type, o.OrderStatus AS status,
-              s.TotalAmount AS amount, s.SalesDiscount AS discount, s.Remarks AS remarks
+              COALESCE(c.CustomerName, ' — ') AS customerName, o.PaymentStatus AS paymentStatus, o.ResolutionAction AS resolutionAction, s.TotalAmount AS amount, s.SalesDiscount AS discount, s.Remarks AS remarks,
+              o.SubtotalSnapshot AS subtotal,o.VatSnapshot AS vat,o.TaxRateSnapshot AS taxRate,o.DeliveryNo AS deliveryNo,o.DeliveryInstructions AS deliveryInstructions,
+              c.ContactNo AS customerPhone,c.Address AS customerAddress,
+              COALESCE(pay.paymentMethod,o.PaymentMethod) AS paymentMethod,pay.referenceNo,pay.amountCollected,pay.changeDue,
+              d.DeliveryCharge AS deliveryFee,d.DeliveryAddress AS deliveryAddress,CONCAT(rider.FirstName,' ',rider.LastName) AS deliveryRiderName
        FROM Sales s
        JOIN User u ON u.UserID = s.UserID
        LEFT JOIN \`Order\` o ON o.OrderID = s.OrderID
+      LEFT JOIN Customer c ON c.CustomerID=s.CustomerID
+      LEFT JOIN (SELECT SaleID,MAX(PaymentMethod) AS paymentMethod,MAX(ReferenceNo) AS referenceNo,SUM(COALESCE(AmountTendered,AmountPaid)) AS amountCollected,SUM(COALESCE(ChangeDue,0)) AS changeDue FROM Payment GROUP BY SaleID) pay ON pay.SaleID=s.SaleID
+      LEFT JOIN Delivery d ON d.SaleID=s.SaleID LEFT JOIN User rider ON rider.UserID=o.AssignedRiderID
        WHERE s.SaleID = :id`,
       { id: req.params.id }
     );
     if (!saleRows[0]) throw new ApiError(404, "Sale not found.");
     const [items] = await pool.query(
-      `SELECT od.ProductID AS productId, p.ProductName AS name, od.Quantity AS qty,
-              od.UnitPrice AS costPrice, od.Subtotal AS subtotal
+      `SELECT od.ProductID AS productId, COALESCE(p.ProductName, od.ProductNameSnapshot, 'Deleted Product') AS name, od.Quantity AS qty,
+              COALESCE(od.UnitPriceSnapshot,od.UnitPrice) AS unitPrice, COALESCE(od.UnitPriceSnapshot,od.UnitPrice) AS costPrice, od.Subtotal AS subtotal
        FROM Sales s
        JOIN OrderDetails od ON od.OrderID = s.OrderID
-       JOIN Product p ON p.ProductID = od.ProductID
+       LEFT JOIN Product p ON p.ProductID = od.ProductID
        WHERE s.SaleID = :id`,
       { id: req.params.id }
     );
-    res.json({ ...saleRows[0], items });
+    res.json({ ...saleRows[0], items,deliveryDetails:{address:saleRows[0].deliveryAddress,instructions:saleRows[0].deliveryInstructions,riderName:saleRows[0].deliveryRiderName} });
   })
 );
 
-// POST /sales — creates a walk-in/POS sale, deducts inventory, records payment
-router.post(
-  "/",
-  asyncHandler(async (req, res) => {
-    const { customerType, items, discount, paymentMethod, amountCollected, warehouseId, remarks } = req.body;
-    let { customerId } = req.body;
+// POS orders use the same transactional fulfillment writer as Orders & Delivery.
+router.post("/", asyncHandler(async (req,res) => {
+  res.status(201).json(await require("../services/createOrder")(req.user,req.body));
+}));
 
-    if (!Array.isArray(items) || !items.length) {
-      throw new ApiError(400, "At least one item is required.");
-    }
 
-    for (const item of items) {
-      if (!item.productId || !item.qty || Number(item.qty) <= 0) {
-        throw new ApiError(400, `Invalid productId "${item.productId}" or quantity.`);
-      }
-      item.productId = String(item.productId);
-      item.qty = Number(item.qty);
-      item.unitPrice = Number(item.unitPrice);
-    }
-
-    const { rate: taxRate, enabled: taxEnabled } = await getTaxSettings(req.user.companyId);
-
-    const conn = await pool.getConnection();
-    try {
-      await conn.beginTransaction();
-
-      if (!customerId) {
-        const [existing] = await conn.query(
-          `SELECT CustomerID FROM Customer WHERE ContactNo = 'WALKIN' LIMIT 1`
-        );
-        if (existing[0]) {
-          customerId = existing[0].CustomerID;
-        } else {
-          const newCustomerId = await nextId(conn, "Customer", "CustomerID", "CUST");
-          await conn.query(
-            `INSERT INTO Customer (CustomerID, CustomerType, ContactNo, Address, Status)
-             VALUES (:customerId, :type, 'WALKIN', 'Walk-in', 'Active')`,
-            {
-              customerId: newCustomerId,
-              type: customerType === "Business Account" ? "Commercial" : "Residential",
-            }
-          );
-          customerId = newCustomerId;
-        }
-      }
-
-      const subtotal = items.reduce((sum, it) => sum + it.qty * it.unitPrice, 0);
-      const discountAmount = discount || 0;
-      const vat = taxEnabled ? (subtotal - discountAmount) * taxRate : 0;
-      const totalAmount = subtotal - discountAmount + vat;
-      const hasExplicitWarehouse = !!warehouseId;
-      const wid = hasExplicitWarehouse ? warehouseId : DEFAULT_WAREHOUSE_ID;
-
-      const orderNo = await nextSequence(pool, "`Order`", "OrderNo", "ORD");
-      const orderId = await nextId(conn, "`Order`", "OrderID", "ORD");
-      await conn.query(
-        `INSERT INTO \`Order\` (OrderID, CustomerID, OrderNo, OrderType, OrderStatus, TotalAmount, Remarks)
-         VALUES (:orderId, :customerId, :orderNo, 'Walk-in', 'Completed', :totalAmount, :remarks)`,
-        { orderId, customerId, orderNo, totalAmount, remarks: remarks || null }
-      );
-
-      for (const item of items) {
-        const [productRows] = await conn.query(
-          `SELECT ProductID FROM Product WHERE ProductID = :pid`,
-          { pid: item.productId }
-        );
-        if (!productRows[0]) {
-          throw new ApiError(400, `Product ID ${item.productId} does not exist.`);
-        }
-
-        const orderDetailId = await nextId(conn, "OrderDetails", "OrderDetailID", "OD");
-        await conn.query(
-          `INSERT INTO OrderDetails (OrderDetailID, OrderID, ProductID, Quantity, UnitPrice, Subtotal)
-           VALUES (:orderDetailId, :orderId, :productId, :qty, :unitPrice, :subtotal)`,
-          {
-            orderDetailId,
-            orderId,
-            productId: item.productId,
-            qty: item.qty,
-            unitPrice: item.unitPrice,
-            subtotal: item.qty * item.unitPrice,
-          }
-        );
-
-        if (hasExplicitWarehouse) {
-          const [invRows] = await conn.query(
-            `SELECT InventoryID, StockOnHand FROM Inventory WHERE WarehouseID = :wid AND ProductID = :pid FOR UPDATE`,
-            { wid, pid: item.productId }
-          );
-          let inv = invRows[0];
-          if (!inv) {
-            const inventoryId = await nextId(conn, "Inventory", "InventoryID", "INT");
-            await conn.query(
-              `INSERT INTO Inventory (InventoryID, WarehouseID, ProductID, StockOnHand) VALUES (:inventoryId, :wid, :pid, 0)`,
-              { inventoryId, wid, pid: item.productId }
-            );
-            inv = { InventoryID: inventoryId, StockOnHand: 0 };
-          }
-          if (inv.StockOnHand < item.qty) {
-            throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
-          }
-          await conn.query(`UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`, {
-            qty: item.qty,
-            id: inv.InventoryID,
-          });
-          const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
-          await conn.query(
-            `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
-             VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
-            { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: item.qty, ref: orderNo }
-          );
-        } else {
-          const [invRows] = await conn.query(
-            `SELECT i.InventoryID, i.StockOnHand
-             FROM Inventory i
-             JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
-             WHERE w.CompanyID = :companyId AND i.ProductID = :pid
-             ORDER BY i.StockOnHand DESC, i.InventoryID
-             FOR UPDATE`,
-            { companyId: req.user.companyId, pid: item.productId }
-          );
-
-          const totalAvailable = invRows.reduce((sum, row) => sum + Number(row.StockOnHand || 0), 0);
-          if (totalAvailable < item.qty) {
-            throw new ApiError(400, `Insufficient stock for product ${item.productId}.`);
-          }
-
-          let remaining = item.qty;
-          for (const inv of invRows) {
-            if (remaining <= 0) break;
-            const available = Number(inv.StockOnHand || 0);
-            if (available <= 0) continue;
-
-            const deductQty = Math.min(available, remaining);
-            await conn.query(
-              `UPDATE Inventory SET StockOnHand = StockOnHand - :qty WHERE InventoryID = :id`,
-              { qty: deductQty, id: inv.InventoryID }
-            );
-
-            const transactionId = await nextId(conn, "InventoryTransaction", "TransactionID", "T");
-            await conn.query(
-              `INSERT INTO InventoryTransaction (TransactionID, InventoryID, UserID, TransactionType, Quantity, Reason, ReferenceNo)
-               VALUES (:transactionId, :invId, :userId, 'Stock Out', :qty, 'Sale', :ref)`,
-              { transactionId, invId: inv.InventoryID, userId: req.user.userId, qty: deductQty, ref: orderNo }
-            );
-
-            remaining -= deductQty;
-          }
-        }
-      }
-
-      const saleNo = await nextSequence(pool, "Sales", "SaleNo", "SALE");
-      const saleId = await nextId(conn, "Sales", "SaleID", "S");
-      await conn.query(
-        `INSERT INTO Sales (SaleID, OrderID, CustomerID, UserID, SaleNo, SalesDiscount, TotalAmount, Remarks)
-         VALUES (:saleId, :orderId, :customerId, :userId, :saleNo, :discount, :totalAmount, :remarks)`,
-        {
-          saleId,
-          orderId,
-          customerId,
-          userId: req.user.userId,
-          saleNo,
-          discount: discountAmount,
-          totalAmount,
-          remarks: remarks || null,
-        }
-      );
-
-      if (paymentMethod && amountCollected) {
-        const paymentId = await nextId(conn, "Payment", "PaymentID", "PAY");
-        await conn.query(
-          `INSERT INTO Payment (PaymentID, PaymentType, SaleID, PaymentMethod, AmountPaid)
-           VALUES (:paymentId, 'Sale', :saleId, :method, :amount)`,
-          { paymentId, saleId, method: paymentMethod, amount: amountCollected }
-        );
-      }
-
-      await conn.commit();
-      res.status(201).json({
-        saleId,
-        saleNo,
-        subtotal,
-        vat,
-        taxRate: taxEnabled ? taxRate : 0,
-        discount: discountAmount,
-        totalAmount,
-        changeDue: amountCollected ? amountCollected - totalAmount : null,
-      });
-    } catch (err) {
-      await conn.rollback();
-      throw err;
-    } finally {
-      conn.release();
-    }
-  })
-);
 
 // POST /sales/import — bulk-import historical sales from a CSV (unchanged from before, still uses the
 // company's saved tax rate rather than a hardcoded constant)
@@ -387,8 +205,8 @@ router.post(
           const vat = taxEnabled ? (subtotal - discount) * taxRate : 0;
           const totalAmount = subtotal - discount + vat;
 
-          const orderNo = await nextSequence(pool, "`Order`", "OrderNo", "ORD");
-          const orderId = await nextId(conn, "`Order`", "OrderID", "ORD");
+          const orderNo = await nextSequence(conn, "`Order`", "OrderNo", "ORD");
+          const orderId = orderNo;
           await conn.query(
             `INSERT INTO \`Order\` (OrderID, CustomerID, OrderNo, OrderDate, OrderType, OrderStatus, TotalAmount, Remarks)
              VALUES (:orderId, :customerId, :orderNo, :saleDate, 'Walk-in', 'Completed', :totalAmount, :remarks)`,
@@ -446,7 +264,7 @@ router.post(
             }
           }
 
-          const saleNo = await nextSequence(pool, "Sales", "SaleNo", "SALE");
+          const saleNo = await nextSequence(conn, "Sales", "SaleNo", "SALE");
           const saleId = await nextId(conn, "Sales", "SaleID", "S");
           await conn.query(
             `INSERT INTO Sales (SaleID, OrderID, CustomerID, UserID, SaleNo, SaleDate, SalesDiscount, TotalAmount, Remarks)
@@ -518,6 +336,8 @@ router.delete(
       );
       if (!saleRows[0]) throw new ApiError(404, "Sale not found.");
       const { OrderID: orderId } = saleRows[0];
+      const [[fulfillment]] = await conn.query(`SELECT OrderType,ResolutionAction FROM \`Order\` WHERE OrderID=:id`,{id:orderId});
+      if (fulfillment && fulfillment.OrderType !== 'Walk-in') throw new ApiError(409,'Use Orders & Delivery cancellation and settlement; fulfillment history cannot be voided.');
 
       const [deliveryRows] = await conn.query(
         `SELECT DeliveryID FROM Delivery WHERE SaleID = :id`,

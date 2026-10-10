@@ -104,7 +104,8 @@ function ViewInventoryModal({ item, onClose }) {
           <div><strong>Product ID:</strong> {item.productId}</div>
           <div><strong>Product Name:</strong> {item.productName}</div>
           <div><strong>Warehouse:</strong> {item.warehouse}</div>
-          <div><strong>Current Stock:</strong> {item.currentStock}</div>
+          <div><strong>Filled / Sellable Stock:</strong> {item.currentStock}</div>
+          {!!Number(item.isTank) && <div><strong>Empty Tanks:</strong> {item.emptyStock}</div>}
           <div><strong>Reorder Limit:</strong> {item.reorderLimit}</div>
           <div><strong>Status:</strong> {item.status}</div>
           {item.lastUpdated && <div><strong>Last Updated:</strong> {new Date(item.lastUpdated).toLocaleString()}</div>}
@@ -123,81 +124,44 @@ function ViewInventoryModal({ item, onClose }) {
   );
 }
 
-function EditInventoryModal({ item, onClose, onSave, isSaving }) {
-  const [newQuantity, setNewQuantity] = useState(item ? item.currentStock : 0);
-  const [remarks, setRemarks] = useState("");
-
-  useEffect(() => {
-    if (item) {
-      setNewQuantity(item.currentStock);
-      setRemarks("");
-    }
-  }, [item]);
-
-  if (!item) return null;
-
-  return (
-    <div style={overlayStyle} onClick={onClose}>
-      <div style={cardStyle} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h2 style={{ fontSize: "1.25rem", fontWeight: 800, margin: 0 }}>Edit Stock</h2>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer" }}>
-            <X size={20} />
-          </button>
-        </div>
-        <p style={{ color: "#6b7280", fontSize: "0.85rem", margin: "8px 0 16px 0" }}>
-          {item.productName} — {item.warehouse}
-        </p>
-
-        <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>New Stock Quantity</label>
-        <input
-          type="number"
-          min="0"
-          value={newQuantity}
-          onChange={(e) => setNewQuantity(e.target.value)}
-          style={{
-            width: "100%", border: "1px solid #d1d5db", borderRadius: 8, padding: "10px 12px",
-            fontSize: "0.9rem", margin: "6px 0 14px 0", boxSizing: "border-box",
-          }}
-        />
-
-        <label style={{ fontSize: "0.85rem", fontWeight: 600, color: "#374151" }}>Remarks (optional)</label>
-        <input
-          type="text"
-          value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
-          placeholder="e.g. Physical count correction"
-          style={{
-            width: "100%", border: "1px solid #d1d5db", borderRadius: 8, padding: "10px 12px",
-            fontSize: "0.9rem", margin: "6px 0 20px 0", boxSizing: "border-box",
-          }}
-        />
-
-        <div style={{ display: "flex", gap: 12 }}>
-          <button
-            onClick={onClose}
-            style={{
-              flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #d1d5db",
-              background: "#e5e7eb", color: "#111827", fontWeight: 700, cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => onSave(item.inventoryId, Number(newQuantity), remarks)}
-            disabled={isSaving}
-            style={{
-              flex: 1, padding: "10px 0", borderRadius: 8, border: "none",
-              background: "#1d6bf3", color: "#ffffff", fontWeight: 700, cursor: "pointer",
-              opacity: isSaving ? 0.6 : 1,
-            }}
-          >
-            {isSaving ? "Saving…" : "Save"}
-          </button>
-        </div>
+function EditInventoryModal({ item, onClose, onSave, isSaving, error }) {
+  const [action,setAction]=useState('filled');
+  const [quantity,setQuantity]=useState('');
+  const [remarks,setRemarks]=useState('');
+  useEffect(()=>{
+    if(item){setAction('filled');setQuantity(String(item.currentStock));setRemarks('');}
+  },[item]);
+  if(!item)return null;
+  const chooseAction=value=>{
+    setAction(value);
+    setQuantity(value==='refill'?'':String(value==='set-empty'?item.emptyStock:item.currentStock));
+    setRemarks('');
+  };
+  return <div className="inventory-cylinder-overlay" onClick={()=>{if(!isSaving)onClose();}}>
+    <form className="inventory-cylinder-modal" role="dialog" aria-modal="true" aria-labelledby="edit-stock-title" onClick={e=>e.stopPropagation()} onSubmit={e=>{e.preventDefault();if(!isSaving)onSave(item,action,Number(quantity),remarks);}}>
+      <h2 id="edit-stock-title">Edit Stock</h2>
+      <p>{item.productName} ? {item.warehouse}</p>
+      {!!Number(item.isTank) && <>
+        <p>Filled: {item.currentStock} ? Empty: {item.emptyStock}</p>
+        <label>Stock Action<select autoFocus value={action} onChange={e=>chooseAction(e.target.value)} disabled={isSaving}>
+          <option value="filled">Edit Filled Stock</option>
+          <option value="set-empty">Edit Empty Stock</option>
+          <option value="refill" disabled={!Number(item.emptyStock)}>Refill Empty Tanks</option>
+        </select></label>
+      </>}
+      <label>{action==='refill'?'Tanks to refill':action==='set-empty'?'Counted empty tanks':'New filled / sellable stock quantity'}
+        <input autoFocus={!Number(item.isTank)} required type="number" min={action==='refill'?1:0} max={action==='refill'?item.emptyStock:undefined} step="1" value={quantity} disabled={isSaving} onChange={e=>setQuantity(e.target.value)}/>
+      </label>
+      <label>Remarks{action!=='set-empty'?' (Optional)':''}
+        <input required={action==='set-empty'} maxLength={255} value={remarks} disabled={isSaving} onChange={e=>setRemarks(e.target.value)}/>
+      </label>
+      {error && <p role="alert" style={{color:'#dc2626'}}>{error}</p>}
+      <div className="inventory-cylinder-buttons">
+        <button type="button" disabled={isSaving} onClick={onClose}>Cancel</button>
+        <button type="submit" disabled={isSaving}>{isSaving?'Saving...':action==='refill'?'Refill Tanks':'Save'}</button>
       </div>
-    </div>
-  );
+    </form>
+  </div>;
 }
 
 export default function Inventory() {
@@ -217,7 +181,6 @@ export default function Inventory() {
   const [isSaving, setIsSaving] = useState(false);
   const [actionError, setActionError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
-
   const [isStockInOpen, setIsStockInOpen] = useState(false);
   const [isStockOutOpen, setIsStockOutOpen] = useState(false);
   const [isTransferOpen, setIsTransferOpen] = useState(false);
@@ -347,14 +310,15 @@ export default function Inventory() {
     );
   }, [inventory]);
 
-  const handleSaveEdit = async (inventoryId, newQuantity, remarks) => {
+  const handleSaveEdit = async (item, action, newQuantity, remarks) => {
     setIsSaving(true);
     setActionError("");
     try {
-      await apiRequest(`/inventory/${inventoryId}`, {
-        method: "PUT",
-        body: JSON.stringify({ newQuantity, remarks }),
+      const result=await apiRequest(`/inventory/${item.inventoryId}${action==='filled'?'':'/cylinders'}`, {
+        method: action==='filled'?'PUT':'POST',
+        body: JSON.stringify(action==='filled'?{newQuantity,remarks}:{action,quantity:newQuantity,remarks,expectedEmptyStock:item.emptyStock}),
       });
+      setActionMessage(result.message || 'Stock updated.');
       setEditItem(null);
       loadInventory();
       loadTransactions();
@@ -597,7 +561,8 @@ export default function Inventory() {
                     <th>Product ID</th>
                     <th>Product Name</th>
                     <th>Warehouse</th>
-                    <th>Current Stock</th>
+                    <th>Filled / Sellable Stock</th>
+                    <th>Empty Tanks</th>
                     <th>Reorder Limit</th>
                     <th>Status</th>
                     <th>Stock Actions</th>
@@ -605,10 +570,10 @@ export default function Inventory() {
                 </thead>
                 <tbody>
                   {isLoading && (
-                    <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
                   )}
                   {!isLoading && filteredInventory.length === 0 && (
-                    <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>No inventory records found.</td></tr>
+                    <tr><td colSpan={8} style={{ textAlign: "center", padding: 24 }}>No inventory records found.</td></tr>
                   )}
                   {!isLoading &&
                     paginatedInventory.map((item) => (
@@ -617,6 +582,7 @@ export default function Inventory() {
                         <td>{item.productName}</td>
                         <td>{item.warehouse}</td>
                         <td>{item.currentStock}</td>
+                        <td>{Number(item.isTank)?item.emptyStock:'—'}</td>
                         <td>{item.reorderLimit}</td>
                         <td>
                           <span className={`inventory-status-pill ${getStatusClass(item.status)}`}>
@@ -635,7 +601,7 @@ export default function Inventory() {
                             <button
                               className="inventory-action-icon edit"
                               title="Edit"
-                              onClick={() => setEditItem(item)}
+                              onClick={() => {setActionError('');setEditItem(item);}}
                             >
                               <Pencil size={16} />
                             </button>
@@ -787,7 +753,8 @@ export default function Inventory() {
       <ViewInventoryModal item={viewItem} onClose={() => setViewItem(null)} />
       <EditInventoryModal
         item={editItem}
-        onClose={() => setEditItem(null)}
+        onClose={() => {setEditItem(null);setActionError('');}}
+        error={actionError}
         onSave={handleSaveEdit}
         isSaving={isSaving}
       />

@@ -226,3 +226,9 @@
 .products-action-icon:hover {
   opacity: 0.7;
 }
+.products-pagination { display:flex; justify-content:flex-end; align-items:center; gap:8px; padding:16px 20px; background:#f9fafb; flex-wrap:wrap; }
+.products-pagination .page-btn { min-width:32px; height:32px; border-radius:6px; border:1px solid #e5e7eb; background:white; color:#374151; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+.products-pagination .page-btn.active { border-color:#1e3a5f; color:#1e3a5f; }
+.products-pagination .page-btn:disabled { opacity:.4; cursor:not-allowed; }
+.products-confirm-delete { display:flex; gap:8px; align-items:center; background:#dc2626; color:white; border:0; border-radius:8px; padding:10px 18px; cursor:pointer; }
+.products-confirm-delete:disabled { opacity:.5; cursor:not-allowed; }

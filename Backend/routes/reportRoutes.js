@@ -124,7 +124,7 @@ router.post(
     if (report.ReportType === "Sales Summary") {
       const [sales] = await pool.query(
         `SELECT SaleNo, SaleDate, TotalAmount, SalesDiscount
-         FROM Sales WHERE SaleDate BETWEEN :start AND :end ORDER BY SaleDate`,
+         FROM Sales WHERE (OrderID IS NULL OR OrderID IN (SELECT OrderID FROM \`Order\` WHERE ArchivedAt IS NOT NULL)) AND SaleDate BETWEEN :start AND :end ORDER BY SaleDate`,
         { start: report.PeriodStart, end: report.PeriodEnd }
       );
       csv = "SaleNo,SaleDate,TotalAmount,Discount\n";
@@ -133,19 +133,19 @@ router.post(
       });
     } else if (report.ReportType === "Inventory Audit") {
       const [inventory] = await pool.query(`
-        SELECT p.ProductName, w.WarehouseName, i.StockOnHand, p.ReorderLevel
+        SELECT p.ProductName, w.WarehouseName, i.StockOnHand, i.EmptyStock, p.ReorderLevel
         FROM Inventory i
         JOIN Product p ON p.ProductID = i.ProductID
         JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
       `);
-      csv = "ProductName,Warehouse,StockOnHand,ReorderLevel\n";
+      csv = "ProductName,Warehouse,FilledStock,EmptyStock,ReorderLevel\n";
       inventory.forEach((r) => {
-        csv += `${r.ProductName},${r.WarehouseName},${r.StockOnHand},${r.ReorderLevel}\n`;
+        csv += `${r.ProductName},${r.WarehouseName},${r.StockOnHand},${r.EmptyStock},${r.ReorderLevel}\n`;
       });
     } else if (report.ReportType === "Restocking Logs") {
       const [restock] = await pool.query(`
-        SELECT p.ProductName, r.StockOnHand, r.RecommendedQuantity, r.Status, r.ForecastDate
-        FROM RestockRecommendation r JOIN Product p ON p.ProductID = r.ProductID
+        SELECT COALESCE(p.ProductName,r.ProductNameSnapshot,'Deleted Product') AS ProductName, r.StockOnHand, r.RecommendedQuantity, r.Status, r.ForecastDate
+        FROM RestockRecommendation r LEFT JOIN Product p ON p.ProductID = r.ProductID
         WHERE r.ForecastDate BETWEEN :start AND :end
       `, { start: report.PeriodStart, end: report.PeriodEnd });
       csv = "ProductName,StockOnHand,RecommendedQuantity,Status,ForecastDate\n";

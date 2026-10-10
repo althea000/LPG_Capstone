@@ -7,18 +7,25 @@ const emptyForm = {
   categoryId: "",
   brandId: "",
   supplierId: "",
-  unit: "",
+  unit: "piece",
+  unitValue: "1.0",
+  customBrand: "",
+  customCategory: "",
   unitPrice: "",
   costPrice: "",
   reorderLevel: "",
   imageUrl: "",
   arModelUrl: "",
   status: "Active",
+  warehouseId: "",
+  stock: "",
+  stockDirty:false, expectedStock:0,
 };
 
 export default function AddProductModal({ isOpen, onClose, onSaved, selectedProduct }) {
   const [categories, setCategories] = useState([]);
   const [brands, setBrands] = useState([]);
+  const [warehouses,setWarehouses] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -33,14 +40,20 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
       apiRequest("/categories"),
       apiRequest("/brands"),
       apiRequest("/suppliers"),
+      selectedProduct ? apiRequest(`/products/${selectedProduct.productId}/inventory`) : apiRequest("/warehouses"),
     ])
-      .then(([categoryData, brandData, supplierData]) => {
+      .then(([categoryData, brandData, supplierData, warehouseData]) => {
+        setWarehouses(warehouseData);
         setCategories(categoryData);
         setBrands(brandData);
         setSuppliers(supplierData);
+        if (selectedProduct) setForm(prev => {
+          const match = (options, name, id) => options.find(o => o.name.trim().toLowerCase() === String(name || '').trim().toLowerCase()) || options.find(o => o.id === id);
+          return { ...prev, categoryId: match(categoryData, selectedProduct.category, selectedProduct.categoryId)?.id || 'Other', brandId: match(brandData, selectedProduct.brand, selectedProduct.brandId)?.id || 'Other' };
+        });
       })
       .catch((err) => setError(err.message || "Failed to load categories/brands/suppliers."));
-  }, [isOpen]);
+  }, [isOpen, selectedProduct]);
 
   useEffect(() => {
     if (selectedProduct) {
@@ -49,13 +62,17 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
         categoryId: selectedProduct.categoryId || "",
         brandId: selectedProduct.brandId || "",
         supplierId: selectedProduct.supplierId || "",
-        unit: selectedProduct.unit || "",
+        unit: selectedProduct.unit || "piece",
+        unitValue: selectedProduct.unitValue ?? (selectedProduct.unit === "piece" ? "1.0" : ""),
+        customBrand: selectedProduct.brand || "",
+        customCategory: selectedProduct.category || "",
         unitPrice: selectedProduct.unitPrice ?? "",
         costPrice: selectedProduct.costPrice ?? "",
         reorderLevel: selectedProduct.reorderLevel ?? "",
         imageUrl: selectedProduct.imageUrl || "",
         arModelUrl: selectedProduct.arModelUrl || "",
         status: selectedProduct.status || "Active",
+        warehouseId:"", stock:"", stockDirty:false, expectedStock:0,
       });
     } else {
       setForm(emptyForm);
@@ -72,6 +89,12 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
     onClose();
   };
 
+  const normalize = value => value.trim().replace(/\s+/g, " ").toLowerCase().replace(/\b\p{L}+/gu, word => ['lpg', 'pvc', 'pol', 'tpa'].includes(word) ? word.toUpperCase() : word[0].toUpperCase() + word.slice(1));
+  const snapOption = (kind, options) => {
+    const value = normalize(form[`custom${kind}`]);
+    const match = options.find(o => normalize(o.name).toLowerCase() === value.toLowerCase());
+    setForm(prev => ({ ...prev, [`custom${kind}`]: value, ...(match ? { [`${kind.toLowerCase()}Id`]: match.id } : {}) }));
+  };
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -80,18 +103,30 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
       return;
     }
 
+    const custom = {};
+    for (const kind of ['Brand', 'Category']) {
+      if (form[`${kind.toLowerCase()}Id`] !== 'Other') continue;
+      const value = normalize(form[`custom${kind}`]);
+      if (!/[\p{L}\p{N}]/u.test(value) || /^other$/i.test(value) || value.length > 100) {
+        setError(`Specify a valid new ${kind.toLowerCase()} (up to 100 characters). Other is reserved.`); return;
+      }
+      custom[kind.toLowerCase()] = value;
+    }
     const payload = {
+      ...custom,
       productName: form.productName,
-      categoryId: String(form.categoryId),
-      brandId: String(form.brandId),
+      categoryId: form.categoryId === "Other" ? undefined : String(form.categoryId),
+      brandId: form.brandId === "Other" ? undefined : String(form.brandId),
       supplierId: String(form.supplierId),
       unit: form.unit,
+      unitValue: form.unit === "piece" ? 1 : Number(form.unitValue),
       unitPrice: Number(form.unitPrice) || 0,
       costPrice: Number(form.costPrice) || 0,
       reorderLevel: Number(form.reorderLevel) || 0,
       imageUrl: form.imageUrl || null,
       arModelUrl: form.arModelUrl || null,
       status: form.status,
+      ...(form.warehouseId && (!isEditing || form.stockDirty) ? {warehouseId:form.warehouseId,stock:Number(form.stock),expectedStock:form.expectedStock} : {}),
     };
 
     setIsSubmitting(true);
@@ -108,6 +143,7 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
           body: JSON.stringify(payload),
         });
       }
+      window.dispatchEvent(new Event("product-options-changed"));
       onSaved?.();
       resetAndClose();
     } catch (err) {
@@ -160,7 +196,9 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
+                <option value="Other">Other</option>
               </select>
+              {form.categoryId === 'Other' && <><label htmlFor="custom-category">Specify New Category</label><input id="custom-category" required maxLength={100} value={form.customCategory} onChange={e => updateField('customCategory', e.target.value)} onBlur={() => snapOption('Category', categories)} /></>}
             </div>
             <div className="form-field">
               <label>Supplier</label>
@@ -188,19 +226,23 @@ export default function AddProductModal({ isOpen, onClose, onSaved, selectedProd
                 {brands.map((b) => (
                   <option key={b.id} value={b.id}>{b.name}</option>
                 ))}
+                <option value="Other">Other</option>
               </select>
+              {form.brandId === 'Other' && <><label htmlFor="custom-brand">Specify New Brand</label><input id="custom-brand" required maxLength={100} value={form.customBrand} onChange={e => updateField('customBrand', e.target.value)} onBlur={() => snapOption('Brand', brands)} /></>}
             </div>
             <div className="form-field">
               <label>Unit</label>
-              <select value={form.unit} onChange={(e) => updateField("unit", e.target.value)}>
+              <select value={form.unit} onChange={(e) => setForm(prev => ({ ...prev, unit: e.target.value, unitValue: e.target.value === "piece" ? "1.0" : "" }))}>
                 <option value="" disabled hidden>Unit</option>
-                <option value="kg">Kilogram</option>
-                <option value="m">Meter</option>
-                <option value="pcs">Item</option>
+                <option value="kg">Kilogram (kg)</option>
+                <option value="meter">Meter (m)</option>
+                <option value="piece">Piece (pc)</option>
               </select>
             </div>
           </div>
 
+          {form.unit !== 'piece' && <div className="form-field"><label htmlFor="unit-value">{form.unit === 'kg' ? 'Capacity (kg)' : 'Length (meters)'}</label><input id="unit-value" type="number" required min="0.1" max="999999999.9" step="0.1" value={form.unitValue} onChange={e => updateField('unitValue', e.target.value)} /></div>}
+          <div className="form-row-2"><div className="form-field"><label>Stock Warehouse</label><select value={form.warehouseId} onChange={e=>setForm(prev=>({...prev,warehouseId:e.target.value,stock:warehouses.find(w=>w.id===e.target.value)?.stock ?? 0,expectedStock:warehouses.find(w=>w.id===e.target.value)?.stock ?? 0,stockDirty:false}))}><option value="">Select warehouse to adjust stock</option>{warehouses.map(w=><option key={w.id} value={w.id}>{w.name}</option>)}</select></div><div className="form-field"><label>Stock On Hand{!form.warehouseId && isEditing ? ' (all warehouses)' : ''}</label><input type="number" min="0" step="1" required={Boolean(form.warehouseId)} disabled={!form.warehouseId} value={form.warehouseId?form.stock:selectedProduct?.stock ?? 0} onChange={e=>setForm(prev=>({...prev,stock:e.target.value,stockDirty:true}))}/></div></div>
           {/* Row 3 */}
           <div className="form-row-3">
             <div className="form-field">

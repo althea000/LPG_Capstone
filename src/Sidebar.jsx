@@ -25,7 +25,7 @@ import {
 // Import your custom logo image
 import logoImg from "./assets/logo.png";
 import { apiRequest } from "./api";
-import { getAllowedNavIdsByRole } from "./rbac";
+import { getAllowedNavIdsByRole, isRiderRole } from "./rbac";
 import "./Sidebar.css";
 
 // ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
   const handleProfileSelect = (id) => {
     setIsProfileDropdownOpen(false);
 
-    if (id === "profile") {
+    if (id === "profile" && !isRiderRole(currentUser?.role)) {
       handleClick("settings");
       return;
     }
@@ -214,11 +214,12 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
   };
 
   useEffect(() => {
+    if (isRiderRole(currentUser?.role)) return;
     loadNotifications();
     // Refresh periodically so the badge count doesn't go stale during a long session.
     const interval = setInterval(loadNotifications, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentUser?.role]);
 
   const { dueSoon, overdue } = useMemo(() => {
     return {
@@ -318,14 +319,14 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
 
           {isProfileDropdownOpen && (
             <div className="profile-dropdown">
-              <button
+              {!isRiderRole(currentUser?.role) && <button
                 type="button"
                 className="profile-dropdown-item"
                 onClick={() => handleProfileSelect("profile")}
               >
                 <User size={16} className="profile-dropdown-icon" />
                 <span>Profile</span>
-              </button>
+              </button>}
               <button
                 type="button"
                 className="profile-dropdown-item"
@@ -338,7 +339,7 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
           )}
         </div>
 
-        <button
+        {!isRiderRole(currentUser?.role) && <button
           type="button"
           className="icon-circle"
           aria-label="Notifications"
@@ -348,7 +349,7 @@ export default function Sidebar({ activeItem, onNavigate, onProfileClick }) {
           {notificationCount > 0 && (
             <span className="notification-badge">{notificationCount > 99 ? "99+" : notificationCount}</span>
           )}
-        </button>
+        </button>}
       </div>
 
       {/* Search */}

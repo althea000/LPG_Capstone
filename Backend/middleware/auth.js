@@ -103,6 +103,7 @@ function authenticate(req, res, next) {
 
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET);
+    if (['rider','driver','drivers'].includes(String(payload.roleName || '').trim().toLowerCase()) && !['/orders','/api/orders','/deliveries','/auth'].includes(req.baseUrl)) return next(new ApiError(403,'Rider access is restricted to assigned deliveries.'));
     req.user = payload; // { userId, companyId, roleId, roleName, email }
 
     const pathname = String(req.path || "");

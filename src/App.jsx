@@ -19,7 +19,7 @@ import Data from "./Data";
 import OrderAndDelivery from "./OrderAndDelivery";
 import LogoutModal from "./LogoutModal";
 import { apiRequest } from "./api";
-import { getAllowedNavIdsByRole } from "./rbac";
+import { getAllowedNavIdsByRole, isRiderRole } from "./rbac";
 
 const pages = {
   dashboard: Dashboard,
@@ -94,6 +94,19 @@ export default function App() {
       setActiveItem(allowedNavIds[0]);
     }
   }, [isAuthenticated, allowedNavIds, activeItem]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !isRiderRole(currentUser?.role)) return;
+    const enforceRoute = () => {
+      setActiveItem('orders');
+      setShowResetPage(false);
+      if (window.location.pathname !== '/orders-delivery' || window.location.search !== '?tab=delivery' || window.location.hash) window.history.replaceState(null,'','/orders-delivery?tab=delivery');
+    };
+    enforceRoute();
+    window.addEventListener('popstate',enforceRoute);
+    window.addEventListener('hashchange',enforceRoute);
+    return () => { window.removeEventListener('popstate',enforceRoute);window.removeEventListener('hashchange',enforceRoute); };
+  },[isAuthenticated,currentUser?.role]);
 
   // The password-reset link takes priority over everything else, whether or
   // not the person happens to already be logged in on this browser.

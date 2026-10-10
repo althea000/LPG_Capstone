@@ -7,7 +7,9 @@ router.use(authenticate);
 
 router.get("/", asyncHandler(async (req, res) => {
   const [rows] = await pool.query(
-    `SELECT WarehouseID AS id, WarehouseName AS name, Location AS location, Status AS status FROM Warehouse`
+    `SELECT w.WarehouseID AS id, w.WarehouseName AS name, w.Location AS location, w.Status AS status,
+            COALESCE((SELECT SUM(i.StockOnHand) FROM Inventory i WHERE i.WarehouseID=w.WarehouseID),0) AS stock
+     FROM Warehouse w WHERE w.CompanyID=:company`,{company:req.user.companyId}
   );
   res.json(rows);
 }));

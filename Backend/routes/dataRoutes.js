@@ -63,18 +63,19 @@ async function queryDataset(dataType, start, end) {
   if (dataType === "Sales Data") {
     const [rows] = await pool.query(
       `SELECT s.SaleNo, s.SaleDate, CONCAT(u.FirstName,' ',u.LastName) AS Cashier,
-              s.SalesDiscount, s.TotalAmount, o.OrderType, o.OrderStatus
+              COALESCE(c.CustomerName,' — ') AS CustomerName, s.SalesDiscount, s.TotalAmount, o.OrderType, o.OrderStatus, o.PaymentStatus, o.ResolutionAction
        FROM Sales s
        JOIN User u ON u.UserID = s.UserID
        LEFT JOIN \`Order\` o ON o.OrderID = s.OrderID
-       WHERE DATE(s.SaleDate) BETWEEN :start AND :end
+       LEFT JOIN Customer c ON c.CustomerID=s.CustomerID
+       WHERE DATE(s.SaleDate) BETWEEN :start AND :end AND (o.OrderID IS NULL OR o.ArchivedAt IS NOT NULL)
        ORDER BY s.SaleDate`,
       { start, end }
     );
     return {
       title: "Sales Data",
-      headers: ["Sale No", "Sale Date", "Cashier", "Discount", "Total Amount", "Order Type", "Order Status"],
-      rows: rows.map((r) => [r.SaleNo, r.SaleDate, r.Cashier, r.SalesDiscount, r.TotalAmount, r.OrderType, r.OrderStatus]),
+      headers: ["Sale No", "Sale Date", "Cashier", "Discount", "Total Amount", "Order Type", "Order Status", "Customer", "Payment Status", "Resolution"],
+      rows: rows.map((r) => [r.SaleNo, r.SaleDate, r.Cashier, r.SalesDiscount, r.TotalAmount, r.OrderType, r.OrderStatus, r.CustomerName, r.PaymentStatus, r.ResolutionAction]),
     };
   }
 
@@ -84,6 +85,7 @@ async function queryDataset(dataType, start, end) {
               COALESCE(pay.PaymentMethod, 'Cash') AS PaymentMethod, s.SaleDate
        FROM Sales s
        JOIN OrderDetails od ON od.OrderID = s.OrderID
+       JOIN \`Order\` o ON o.OrderID=s.OrderID AND o.ArchivedAt IS NOT NULL AND o.RestockedAt IS NULL
        LEFT JOIN Payment pay ON pay.SaleID = s.SaleID
        WHERE DATE(s.SaleDate) BETWEEN :start AND :end
        ORDER BY s.SaleDate, s.SaleID`,
@@ -98,7 +100,7 @@ async function queryDataset(dataType, start, end) {
 
   if (dataType === "Inventory Data") {
     const [rows] = await pool.query(`
-      SELECT p.ProductID, p.ProductName, w.WarehouseName, i.StockOnHand, p.ReorderLevel, i.LastUpdated
+      SELECT p.ProductID, p.ProductName, w.WarehouseName, i.StockOnHand, i.EmptyStock, p.ReorderLevel, i.LastUpdated
       FROM Inventory i
       JOIN Product p ON p.ProductID = i.ProductID
       JOIN Warehouse w ON w.WarehouseID = i.WarehouseID
@@ -106,8 +108,8 @@ async function queryDataset(dataType, start, end) {
     `);
     return {
       title: "Inventory Data (Current Snapshot)",
-      headers: ["Product ID", "Product Name", "Warehouse", "Stock On Hand", "Reorder Level", "Last Updated"],
-      rows: rows.map((r) => [r.ProductID, r.ProductName, r.WarehouseName, r.StockOnHand, r.ReorderLevel, r.LastUpdated]),
+      headers: ["Product ID", "Product Name", "Warehouse", "Filled / Sellable Stock", "Empty Tanks", "Reorder Level", "Last Updated"],
+      rows: rows.map((r) => [r.ProductID, r.ProductName, r.WarehouseName, r.StockOnHand, r.EmptyStock, r.ReorderLevel, r.LastUpdated]),
     };
   }
 
@@ -130,9 +132,9 @@ async function queryDataset(dataType, start, end) {
 
   if (dataType === "Restocking Logs") {
     const [rows] = await pool.query(
-      `SELECT r.RestockID, p.ProductName, s.SupplierName, r.StockOnHand, r.RecommendedQuantity, r.Status, r.ForecastDate
+      `SELECT r.RestockID, COALESCE(p.ProductName,r.ProductNameSnapshot,'Deleted Product') AS ProductName, s.SupplierName, r.StockOnHand, r.RecommendedQuantity, r.Status, r.ForecastDate
        FROM RestockRecommendation r
-       JOIN Product p ON p.ProductID = r.ProductID
+       LEFT JOIN Product p ON p.ProductID = r.ProductID
        JOIN Supplier s ON s.SupplierID = r.SupplierID
        WHERE r.ForecastDate BETWEEN :start AND :end
        ORDER BY r.ForecastDate`,

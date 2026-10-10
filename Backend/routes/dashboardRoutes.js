@@ -23,11 +23,11 @@ router.get(
     // --- Sales performance: today vs yesterday ---
     const [[salesToday]] = await pool.query(
       `SELECT COALESCE(SUM(TotalAmount),0) AS total, COUNT(*) AS count
-       FROM Sales WHERE DATE(SaleDate) = CURDATE()`
+       FROM Sales WHERE (OrderID IS NULL OR OrderID IN (SELECT OrderID FROM \`Order\` WHERE ArchivedAt IS NOT NULL)) AND DATE(SaleDate) = CURDATE()`
     );
     const [[salesYesterday]] = await pool.query(
       `SELECT COALESCE(SUM(TotalAmount),0) AS total, COUNT(*) AS count
-       FROM Sales WHERE DATE(SaleDate) = CURDATE() - INTERVAL 1 DAY`
+       FROM Sales WHERE (OrderID IS NULL OR OrderID IN (SELECT OrderID FROM \`Order\` WHERE ArchivedAt IS NOT NULL)) AND DATE(SaleDate) = CURDATE() - INTERVAL 1 DAY`
     );
 
     // --- Stock attention: products at or below reorder level ---
@@ -43,19 +43,19 @@ router.get(
 
     // --- Best seller: most units sold in the last 30 days ---
     const [[bestSeller]] = await pool.query(`
-      SELECT p.ProductName AS name, SUM(od.Quantity) AS qty
+      SELECT COALESCE(p.ProductName, od.ProductNameSnapshot, 'Deleted Product') AS name, SUM(od.Quantity) AS qty
       FROM OrderDetails od
-      JOIN Product p ON p.ProductID = od.ProductID
+      LEFT JOIN Product p ON p.ProductID = od.ProductID
       JOIN \`Order\` o ON o.OrderID = od.OrderID
-      WHERE o.OrderDate >= CURDATE() - INTERVAL 30 DAY
-      GROUP BY p.ProductID ORDER BY qty DESC LIMIT 1
+      WHERE o.ArchivedAt IS NOT NULL AND o.RestockedAt IS NULL AND o.OrderDate >= CURDATE() - INTERVAL 30 DAY
+      GROUP BY od.ProductID, COALESCE(p.ProductName, od.ProductNameSnapshot, 'Deleted Product') ORDER BY qty DESC LIMIT 1
     `);
 
     // --- Sales trend: last 7 days, labeled by weekday ---
     const [trendRows] = await pool.query(`
       SELECT DATE(SaleDate) AS day, SUM(TotalAmount) AS value
       FROM Sales
-      WHERE SaleDate >= CURDATE() - INTERVAL 6 DAY
+      WHERE (OrderID IS NULL OR OrderID IN (SELECT OrderID FROM \`Order\` WHERE ArchivedAt IS NOT NULL)) AND SaleDate >= CURDATE() - INTERVAL 6 DAY
       GROUP BY DATE(SaleDate)
     `);
     const trendMap = new Map(trendRows.map((r) => [r.day, Number(r.value)]));
@@ -142,13 +142,13 @@ router.get(
     const days = Number(req.query.days) || 30;
     const limit = Number(req.query.limit) || 10;
     const [rows] = await pool.query(
-      `SELECT p.ProductID AS id, p.ProductName AS name, SUM(od.Quantity) AS unitsSold,
+      `SELECT od.ProductID AS id, COALESCE(p.ProductName, od.ProductNameSnapshot, 'Deleted Product') AS name, SUM(od.Quantity) AS unitsSold,
               SUM(od.Subtotal) AS revenue
        FROM OrderDetails od
-       JOIN Product p ON p.ProductID = od.ProductID
+       LEFT JOIN Product p ON p.ProductID = od.ProductID
        JOIN \`Order\` o ON o.OrderID = od.OrderID
-       WHERE o.OrderDate >= CURDATE() - INTERVAL :days DAY
-       GROUP BY p.ProductID
+       WHERE o.ArchivedAt IS NOT NULL AND o.RestockedAt IS NULL AND o.OrderDate >= CURDATE() - INTERVAL :days DAY
+       GROUP BY od.ProductID, COALESCE(p.ProductName, od.ProductNameSnapshot, 'Deleted Product')
        ORDER BY unitsSold DESC
        LIMIT :limit`,
       { days, limit }

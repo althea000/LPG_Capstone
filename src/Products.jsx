@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Search,
   ChevronDown,
@@ -8,6 +8,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import Pagination from "./Pagination";
 import AddProductModal from "./AddProductModal";
 import { apiRequest } from "./api";
 import "./Products.css";
@@ -47,10 +48,11 @@ function ViewProductModal({ product, onClose }) {
           <div><strong>Category:</strong> {product.Category}</div>
           <div><strong>Brand:</strong> {product.Brand}</div>
           <div><strong>Supplier:</strong> {product.SupplierName}</div>
-          <div><strong>Unit:</strong> {product.Unit}</div>
+          <div><strong>Unit:</strong> {product.Unit === 'piece' ? `${Number(product.UnitValue || 1)} ${Number(product.UnitValue || 1) > 1 ? 'pieces' : 'piece'}` : product.UnitValue == null ? `${product.Unit} (value not specified)` : `${Number(product.UnitValue).toFixed(1)} ${product.Unit}`}</div>
           <div><strong>Unit Price:</strong> {pesoFormatter.format(product.UnitPrice)}</div>
           <div><strong>Cost Price:</strong> {pesoFormatter.format(product.CostPrice)}</div>
           <div><strong>Reorder Level:</strong> {product.ReorderLevel}</div>
+          <div><strong>Stock On Hand:</strong> {product.Stock}</div>
           <div><strong>Status:</strong> {product.Status}</div>
         </div>
         <button
@@ -65,7 +67,18 @@ function ViewProductModal({ product, onClose }) {
 }
 
 export default function Products() {
+  const requestVersion = useRef(0);
   const [products, setProducts] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [suppliers, setSuppliers] = useState([]);
+  const [selectedSupplier, setSelectedSupplier] = useState("");
+  const [page, setPage] = useState(1);
+  const limit = 7;
+  const [deletingProduct, setDeletingProduct] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const totalPages = Math.max(1, Math.ceil(products.length / limit));
+  const currentPage = Math.min(page, totalPages);
+
   const [loadError, setLoadError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -77,34 +90,48 @@ export default function Products() {
   const [viewingProduct, setViewingProduct] = useState(null); // full detail from /products/:id
   const [actionError, setActionError] = useState("");
 
+  useEffect(() => { setPage(1); }, [searchQuery, selectedCategory, selectedStatus, selectedSupplier, limit]);
+  useEffect(() => {
+    apiRequest('/suppliers').then(setSuppliers).catch(err => setActionError(err.message));
+  }, []);
+  useEffect(() => {
+    const refresh = () => apiRequest('/categories').then(setCategories).catch(err => setActionError(err.message));
+    refresh();
+    window.addEventListener('product-options-changed', refresh);
+    return () => window.removeEventListener('product-options-changed', refresh);
+  }, []);
   const loadProducts = () => {
+    const version = ++requestVersion.current;
     setIsLoading(true);
     const params = new URLSearchParams();
     if (searchQuery.trim()) params.set("search", searchQuery.trim());
     if (selectedCategory !== "All Categories") params.set("category", selectedCategory);
     if (selectedStatus !== "All Status") params.set("status", selectedStatus);
+    if (selectedSupplier) params.set("supplierId", selectedSupplier);
     const endpoint = params.toString() ? `/products?${params.toString()}` : "/products";
 
     apiRequest(endpoint)
       .then((data) => {
+        if (version !== requestVersion.current) return;
         setProducts(data);
         setLoadError("");
       })
       .catch((err) => {
+        if (version !== requestVersion.current) return;
         setProducts([]);
         setLoadError(err.message || "Failed to load products.");
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => { if (version === requestVersion.current) setIsLoading(false); });
   };
 
   useEffect(() => {
     loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchQuery, selectedCategory, selectedStatus]);
+  }, [searchQuery, selectedCategory, selectedStatus, selectedSupplier]);
 
   const productRows = useMemo(
     () =>
-      products.map((product) => ({
+      products.slice((currentPage - 1) * limit, currentPage * limit).map((product) => ({
         productId: product.productId,
         productName: product.name,
         category: product.category,
@@ -112,7 +139,7 @@ export default function Products() {
         costPrice: pesoFormatter.format(Number(product.costPrice || 0)),
         status: product.status,
       })),
-    [products]
+    [products, currentPage, limit]
   );
 
   const handleOpenAdd = () => {
@@ -131,7 +158,11 @@ export default function Products() {
         categoryId: full.CategoryID,
         brandId: full.BrandID,
         supplierId: full.SupplierID,
+        stock: full.Stock,
         unit: full.Unit,
+        unitValue: full.UnitValue,
+        brand: full.Brand,
+        category: full.Category,
         unitPrice: full.UnitPrice,
         costPrice: full.CostPrice,
         reorderLevel: full.ReorderLevel,
@@ -155,19 +186,20 @@ export default function Products() {
     }
   };
 
-  const handleDelete = async (productId, productName) => {
-    const confirmed = window.confirm(
-      `Deactivate "${productName}"? It will no longer appear in POS or the Active product list, but its sales and inventory history will be kept. You can reactivate it later by editing it and setting Status back to Active.`
-    );
-    if (!confirmed) return;
-
+  const handleDelete = async () => {
+    if (!deletingProduct || isDeleting) return;
+    const removed = deletingProduct;
+    const previousProducts = products;
+    ++requestVersion.current;
+    setProducts(prev => prev.filter(p => p.productId !== removed.productId));
+    setIsLoading(false);
+    setIsDeleting(true);
     setActionError("");
     try {
-      await apiRequest(`/products/${productId}`, { method: "DELETE" });
-      loadProducts();
-    } catch (err) {
-      setActionError(err.message || "Failed to deactivate product.");
-    }
+      await apiRequest(`/products/${removed.productId}`, { method: 'DELETE' });
+      setDeletingProduct(null);
+    } catch (err) { setProducts(previousProducts); setActionError(err.message || 'Failed to delete product.'); }
+    finally { setIsDeleting(false); }
   };
 
   return (
@@ -196,9 +228,7 @@ export default function Products() {
               onChange={(e) => setSelectedCategory(e.target.value)}
             >
               <option value="All Categories">All Categories</option>
-              <option value="Gasul LPG">Gasul LPG</option>
-              <option value="Cylinder">Cylinder</option>
-              <option value="Accessories">Accessories</option>
+              {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
             <ChevronDown size={16} className="products-select-icon" />
           </div>
@@ -212,6 +242,19 @@ export default function Products() {
               <option value="All Status">All Status</option>
               <option value="Active">Active</option>
               <option value="Inactive">Inactive</option>
+            </select>
+            <ChevronDown size={16} className="products-select-icon" />
+          </div>
+
+          <div className="products-select-wrap">
+            <select
+              className="products-select"
+              aria-label="Filter by supplier"
+              value={selectedSupplier}
+              onChange={(e) => setSelectedSupplier(e.target.value)}
+            >
+              <option value="">All Suppliers</option>
+              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
             <ChevronDown size={16} className="products-select-icon" />
           </div>
@@ -272,8 +315,8 @@ export default function Products() {
                         </button>
                         <button
                           className="products-action-icon delete"
-                          title="Deactivate"
-                          onClick={() => handleDelete(product.productId, product.productName)}
+                          title="Delete" aria-label={`Delete ${product.productName}`}
+                          onClick={() => { setActionError(""); setDeletingProduct(product); }}
                         >
                           <Trash2 size={16} />
                         </button>
@@ -283,9 +326,16 @@ export default function Products() {
                 ))}
             </tbody>
           </table>
+          <Pagination page={currentPage} total={products.length} onChange={setPage} />
         </div>
       </div>
 
+      {deletingProduct && <div className="add-product-modal-overlay"><div className="add-product-modal-card" role="dialog" aria-modal="true" aria-labelledby="delete-product-title">
+        <h2 id="delete-product-title">Delete Product</h2>
+        {actionError && <p role="alert" style={{ color: "#dc2626" }}>{actionError}</p>}
+        <p>Delete "{deletingProduct.productName}" permanently? Past sales, orders and inventory transactions will be preserved.</p>
+        <div className="add-product-modal-actions"><button className="btn-modal-cancel" disabled={isDeleting} onClick={() => setDeletingProduct(null)}>Cancel</button><button className="products-confirm-delete" disabled={isDeleting} onClick={handleDelete}><Trash2 size={16} /> {isDeleting ? 'Deleting…' : 'Confirm'}</button></div>
+      </div></div>}
       <AddProductModal
         isOpen={isAddProductOpen}
         selectedProduct={editingProduct}

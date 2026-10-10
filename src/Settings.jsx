@@ -2,6 +2,8 @@
 import { apiRequest } from "./api";
 import { clearReceiptSettingsCache } from "./utils/receipt";
 import "./Settings.css";
+import DeliveryRatesSettings from "./DeliveryRatesSettings";
+import "./OrderAndDelivery.css";
 
 const emptySettings = {
   fullName: "",
@@ -13,6 +15,8 @@ const emptySettings = {
   brand: "",
   logoDataUrl: null,
 
+  allowIssueRefund:true,
+  allowForfeitPayment:true,
   taxRate: 12,
   taxEnabled: true,
   currency: "PHP",
@@ -137,6 +141,29 @@ export default function Settings() {
       {loadError && <p style={{ color: "#dc2626", fontWeight: 600 }}>{loadError}</p>}
       {saveError && <p style={{ color: "#dc2626", fontWeight: 600 }}>{saveError}</p>}
       {savedMessage && <p style={{ color: "#16a34a", fontWeight: 600 }}>{savedMessage}</p>}
+
+      <DeliveryRatesSettings/>
+      <div className="settings-card">
+        <h2 className="card-title">Pickup & Refund Policy</h2>
+        <p>Customers have 3 days to collect their pickup order, until 6:00 PM on the deadline.</p>
+        <label className="od-check"><input type="checkbox" checked={settings.allowIssueRefund ?? true} disabled={!settings.allowForfeitPayment} onChange={e=>updateField('allowIssueRefund',e.target.checked)}/> Allow Issue Refund</label>
+        <label className="od-check"><input type="checkbox" checked={settings.allowForfeitPayment ?? true} disabled={!settings.allowIssueRefund} onChange={e=>updateField('allowForfeitPayment',e.target.checked)}/> Allow Forfeit Payment</label>
+        <p>At least one resolution option must remain enabled.</p>
+        <div className="card-actions">
+          <button
+            className="btn btn-primary"
+            onClick={() =>
+              saveSection("pickup-policy", "pickup-policy", {
+                allowIssueRefund: settings.allowIssueRefund,
+                allowForfeitPayment: settings.allowForfeitPayment,
+              })
+            }
+            disabled={savingSection === "pickup-policy"}
+          >
+            {savingSection === "pickup-policy" ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
 
       {/* ─── BUSINESS PROFILE ─── */}
       <div className="settings-card">

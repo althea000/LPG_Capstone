@@ -12,7 +12,7 @@ import {
   Truck,
 } from "lucide-react";
 import PaymentModal from "./PaymentModal";
-import { apiRequest } from "./api";
+import { apiRequest, API_BASE_URL } from "./api";
 import { printReceipt } from "./utils/receipt";
 import { filterVisibleWarehouses } from "./utils/warehouseFilters";
 import "./PosTerminal.css";
@@ -23,31 +23,18 @@ const discountOptions = [
   { label: "Member (10%)", value: 0.1 },
 ];
 
-const paymentMethods = ["Cash", "GCash", "Cash on Delivery", "Card", "Bank Transfer"];
+const paymentMethods = ["Cash", "GCash", "Card", "Bank Transfer", "Cash on Delivery (COD)"];
 const customerTypes = ["Walk-in", "Pickup", "Delivery"];
-const vehicleTypes = ["Motor", "Tricycle", "Truck"];
+
 const HELD_CARTS_KEY = "gastrack_held_carts";
 const DEFAULT_WAREHOUSE_OPTION = "All Warehouses";
 
-const resolveImageUrl = (product) => {
-  if (!product) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
-
-  let url = product.ImageURL || product.imageUrl || product.Imageurl || product.imageURL;
-  if (!url) return "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
-
-  if (url.includes("https://gastrack-backend-wtrs.onrender.com/")) {
-    const parts = url.split("https://gastrack-backend-wtrs.onrender.com/");
-    return "https://gastrack-backend-wtrs.onrender.com/" + parts[parts.length - 1];
-  }
-
-  if (url.startsWith("http://") || url.startsWith("https://")) {
-    return url;
-  }
-
-  const baseUrl = import.meta.env.VITE_API_BASE_URL || "https://gastrack-backend-wtrs.onrender.com";
-  const cleanBase = baseUrl.replace(/\/$/, "");
-  const cleanPath = url.replace(/^\//, "");
-  return `${cleanBase}/${cleanPath}`;
+const resolveImageUrl = product => {
+  const url=product?.ImageURL || product?.imageUrl;
+  if(!url)return null;
+  if(/^https?:/.test(url) && !url.includes('/uploads/'))return url;
+  const pathname=url.includes('/uploads/')?'/uploads/'+url.split('/uploads/').pop():'/'+url.replace(/^\//,'');
+  return API_BASE_URL.replace(/\/$/,'')+pathname;
 };
 
 function formatPeso(amount) {
@@ -81,16 +68,17 @@ function ProductCard({ product, onAdd }) {
       onClick={() => onAdd(product)}
       disabled={outOfStock}
       style={outOfStock ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+      aria-label={`${product.name}, ${outOfStock ? 'out of stock' : `${product.stock} in stock`}`}
     >
       <span className="product-category">{product.category}</span>
       <div className="product-image">
         <img
-          src={resolveImageUrl(product)}
+          src={resolveImageUrl(product) || undefined}
           alt={product.ProductName || product.name}
           className="product-image-img"
           onError={(e) => {
             e.target.onerror = null;
-            e.target.src = "https://gastrack-backend-wtrs.onrender.com/uploads/gasul-50kg.png";
+            e.target.style.display = "none";
           }}
         />
       </div>
@@ -293,7 +281,7 @@ function AddCustomerModal({ isOpen, onClose, onCustomerCreated }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div>
             <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "#374151", display: "block", marginBottom: 4 }}>
-              Customer Name
+              Customer Name (First Name, Last Name)
             </label>
             <input
               type="text"
@@ -384,6 +372,7 @@ function PickupModal({ isOpen, onClose, onSave, initialData }) {
   useEffect(() => {
     if (initialData) {
       setSelectedCustomer({
+        id: initialData.customerId || "",
         customerName: initialData.customerName || "",
         contactNumber: initialData.contactNumber || "",
         address: initialData.address || "",
@@ -462,6 +451,7 @@ function PickupModal({ isOpen, onClose, onSave, initialData }) {
 
     setError("");
     onSave({
+      customerId: selectedCustomer.id,
       customerCategory: selectedCustomer.customerCategory,
       customerName: selectedCustomer.customerName,
       contactNumber: selectedCustomer.contactNumber,
@@ -652,7 +642,29 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [address, setAddress] = useState("");
   const [instructions, setInstructions] = useState("");
-  const [vehicleType, setVehicleType] = useState("Motor");
+  const [vehicleType, setVehicleType] = useState("");
+  const [vehicleRates,setVehicleRates]=useState([]);
+  const [distanceKm,setDistanceKm]=useState("");
+  const [distanceResult,setDistanceResult]=useState(null);
+  const [distanceError,setDistanceError]=useState("");
+  const [calculatingDistance,setCalculatingDistance]=useState(false);
+  const [distanceRetry,setDistanceRetry]=useState(0);
+
+  useEffect(()=>{
+    if(!isOpen)return;
+    let active=true;
+    setDistanceKm("");setDistanceResult(null);setDistanceError("");
+    if(!address.trim()){setCalculatingDistance(false);return;}
+    setCalculatingDistance(true);
+    const timer=setTimeout(async()=>{
+      try{
+        const result=await apiRequest('/delivery-rates/distance',{method:'POST',body:JSON.stringify({address:address.trim()})});
+        if(active){setDistanceKm(result.distanceKm);setDistanceResult({...result,address:address.trim()});}
+      }catch(err){if(active)setDistanceError(err.message);}
+      finally{if(active)setCalculatingDistance(false);}
+    },800);
+    return()=>{active=false;clearTimeout(timer);};
+  },[isOpen,address,distanceRetry]);
   const [assignedRiderId, setAssignedRiderId] = useState("");
   const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
 
@@ -662,7 +674,7 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
     const fetchRiders = async () => {
       setIsLoadingRiders(true);
       try {
-        const data = await apiRequest("/riders");
+        const data = await apiRequest("/orders/riders");
         setRiders(Array.isArray(data) ? data : []);
       } catch (err) {
         setRiders([]);
@@ -672,6 +684,7 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
     };
 
     fetchRiders();
+    apiRequest("/delivery-rates").then(rows=>setVehicleRates(rows.filter(r=>r.enabled))).catch(err=>setError(err.message));
   }, [isOpen]);
 
   useEffect(() => {
@@ -683,7 +696,8 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
       });
       setAddress(initialData.address || "");
       setInstructions(initialData.instructions || "");
-      setVehicleType(initialData.vehicleType || "Motor");
+      setVehicleType(initialData.vehicleId || "");
+      setDistanceKm("");
       setAssignedRiderId(initialData.riderId || "");
     } else {
       resetForm();
@@ -695,7 +709,8 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
     setSelectedCustomer(null);
     setAddress("");
     setInstructions("");
-    setVehicleType("Motor");
+    setVehicleType("");
+    setDistanceKm("");
     setAssignedRiderId("");
     setSearchQuery("");
     setCustomerResults([]);
@@ -748,6 +763,13 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
       return;
     }
 
+    if(!vehicleRates.some(v=>v.id===vehicleType)){
+      setError("Please select a vehicle type.");return;
+    }
+    if(calculatingDistance || !distanceResult || distanceResult.address!==address.trim()){
+      setError(distanceError || "Wait for the delivery distance to be calculated.");return;
+    }
+
     setError("");
 
     const assignedRider = riders.find((r) => String(r.id || r.UserID) === String(assignedRiderId));
@@ -758,7 +780,9 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
       contactNumber: selectedCustomer.contactNumber,
       address: address.trim(),
       instructions: instructions.trim(),
-      vehicleType,
+      vehicleId:vehicleType,
+      vehicleType:vehicleRates.find(v=>v.id===vehicleType)?.name,
+      distanceKm:Number(distanceKm),
       riderId: assignedRiderId,
       riderName: assignedRider ? assignedRider.name || assignedRider.FullName : "Unassigned",
     });
@@ -903,19 +927,26 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
               />
             </div>
 
+            <div className="pos-delivery-distance">
+              <label htmlFor="delivery-distance">Delivery Distance</label>
+              <div className="pos-delivery-distance-field">
+                <input id="delivery-distance" aria-label="Delivery Distance (km)" readOnly aria-busy={calculatingDistance} value={distanceResult?.address===address.trim()?distanceKm:""} placeholder={calculatingDistance?"Calculating...":"Enter a delivery address"}/>
+                <span aria-hidden="true">km</span>
+              </div>
+              {calculatingDistance && <p role="status" className="pos-delivery-distance-status">Calculating road distance...</p>}
+              {distanceError && <div role="alert" className="pos-delivery-distance-error"><p>{distanceError}</p><button type="button" onClick={()=>setDistanceRetry(n=>n+1)}>Retry</button></div>}
+            </div>
             <div style={{ display: "flex", gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <label style={{ fontSize: "0.8rem", fontWeight: 700, color: "#374151", display: "block", marginBottom: 4 }}>
                   Vehicle Type
                 </label>
                 <select
-                  value={vehicleType}
+                  required value={vehicleType}
                   onChange={(e) => setVehicleType(e.target.value)}
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d5db", fontSize: "0.85rem" }}
                 >
-                  {vehicleTypes.map((v) => (
-                    <option key={v} value={v}>{v}</option>
-                  ))}
+                  <option value="">Select Vehicle</option>{vehicleRates.map(v=><option key={v.id} value={v.id}>{v.name} - {v.capacity}</option>)}
                 </select>
               </div>
 
@@ -951,6 +982,7 @@ function DeliveryModal({ isOpen, onClose, onSave, initialData }) {
             <button
               type="button"
               onClick={handleSaveModal}
+              disabled={calculatingDistance || !distanceResult || distanceResult.address!==address.trim() || !vehicleType}
               style={{ padding: "9px 22px", borderRadius: 6, border: "none", background: "#1d6bf3", color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: "0.85rem" }}
             >
               Save Delivery Details
@@ -1015,15 +1047,10 @@ export default function PosTerminal() {
       name: p.name,
       ProductName: p.ProductName ?? p.name,
       stock: Number(p.stock),
+      isTank: Number(p.isTank),
       price: Number(p.unitPrice),
       ImageURL: p.ImageURL ?? p.imageUrl ?? null,
     }));
-
-  const buildProductsQuery = () => {
-    const params = new URLSearchParams({ status: "Active" });
-    if (selectedWarehouseId) params.set("warehouseId", selectedWarehouseId);
-    return `/products?${params.toString()}`;
-  };
 
   const refreshProducts = async (warehouseOverride = selectedWarehouseId) => {
     const params = new URLSearchParams({ status: "Active" });
@@ -1048,15 +1075,24 @@ export default function PosTerminal() {
         );
         setWarehouses(activeWarehouses);
 
-        const nextWarehouseId = selectedWarehouseId || activeWarehouses[0]?.id || "";
-        if (!selectedWarehouseId && nextWarehouseId) {
-          setSelectedWarehouseId(nextWarehouseId);
-          return;
+        if (!selectedWarehouseId && activeWarehouses.length) {
+          // Use product inventory rather than a warehouse summary that older APIs omit.
+          const inventories = await Promise.all(activeWarehouses.map(async warehouse => {
+            const params = new URLSearchParams({ status: "Active", warehouseId: warehouse.id });
+            const rows = await apiRequest(`/products?${params.toString()}`);
+            return { warehouse, rows, stock: rows.reduce((sum, product) => sum + Math.max(0, Number(product.stock) || 0), 0) };
+          }));
+          if (cancelled) return;
+          const best = inventories.reduce((current, entry) => entry.stock > current.stock ? entry : current);
+          setSelectedWarehouseId(best.warehouse.id);
+          setProducts(mapProducts(best.rows));
+        } else {
+          const params = new URLSearchParams({ status: "Active" });
+          if (selectedWarehouseId) params.set("warehouseId", selectedWarehouseId);
+          const data = await apiRequest(`/products?${params.toString()}`);
+          if (cancelled) return;
+          setProducts(mapProducts(data));
         }
-
-        const data = await apiRequest(buildProductsQuery());
-        if (cancelled) return;
-        setProducts(mapProducts(data));
         setLoadError("");
       } catch (err) {
         if (!cancelled) setLoadError(err.message || "Failed to load products.");
@@ -1091,7 +1127,9 @@ export default function PosTerminal() {
   }, [products, searchTerm, category]);
 
   const addToCart = (product) => {
+    if (isLoadingProducts) return;
     if (product.stock <= 0) return;
+    setPosError("");
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
       if (existing) {
@@ -1207,10 +1245,19 @@ export default function PosTerminal() {
   const totalSalesInclusive = subtotalInclusive - discount;
   const vatAmount = totalSalesInclusive * (0.12 / 1.12);
   const amountNetOfVat = totalSalesInclusive - vatAmount;
-  const totalAmountDue = totalSalesInclusive;
+  const [deliveryQuote,setDeliveryQuote]=useState(null),[quoting,setQuoting]=useState(false);
+  useEffect(()=>{
+    let active=true;setDeliveryQuote(null);
+    if(customerType!=='Delivery' || !deliveryDetails)return;
+    setQuoting(true);
+    apiRequest('/delivery-rates/quote',{method:'POST',body:JSON.stringify({vehicleId:deliveryDetails.vehicleId,distance:deliveryDetails.distanceKm,subtotal:totalSalesInclusive})}).then(result=>{if(active)setDeliveryQuote(result);}).catch(err=>{if(active)setPosError(err.message);}).finally(()=>{if(active)setQuoting(false);});
+    return()=>{active=false;};
+  },[customerType,deliveryDetails,totalSalesInclusive]);
+  useEffect(()=>{if(customerType!=='Delivery' && paymentMethod==='Cash on Delivery (COD)')setPaymentMethod('');},[customerType,paymentMethod]);
+  const totalAmountDue = totalSalesInclusive + (customerType==='Delivery'?deliveryQuote?.fee || 0:0);
 
   const handlePay = () => {
-    if (cart.length === 0) return;
+    if (cart.length === 0 || !paymentMethod) return;
     if (customerType === "Pickup" && !pickupDetails) {
       setPosError("Please complete the pickup details before proceeding.");
       setShowPickupModal(true);
@@ -1225,7 +1272,7 @@ export default function PosTerminal() {
     setShowPaymentModal(true);
   };
 
-  const handleConfirmPayment = async ({ amountCollected, changeDue, printReceipt: shouldPrint }) => {
+  const handleConfirmPayment = async ({ amountCollected, referenceNo, printReceipt: shouldPrint, emptyReturns }) => {
     if (cart.length === 0) return;
     setIsProcessing(true);
     setPosError("");
@@ -1243,14 +1290,19 @@ export default function PosTerminal() {
             unitPrice: item.price,
           })),
           discount,
-          paymentMethod: paymentMethod || "Cash",
+          paymentMethod,
+          referenceNo,
           warehouseId: selectedWarehouseId || undefined,
           amountCollected,
+          emptyReturns,
         }),
       });
 
       if (shouldPrint) {
         printReceipt({
+          ...response,
+          documentType:customerType==='Pickup'?'pickup':paymentMethod==='Cash on Delivery (COD)'?'delivery':'invoice',
+          cashierName:(()=>{const user=JSON.parse(localStorage.getItem("user") || "{}");return [user.firstName,user.lastName].filter(Boolean).join(" ");})(),
           saleNo: response.saleNo,
           datetime: new Date(),
           orderType: customerType,
@@ -1263,7 +1315,8 @@ export default function PosTerminal() {
           vat: response.vat,
           taxRate: response.taxRate,
           totalAmount: response.totalAmount,
-          amountCollected,
+          amountCollected:response.amountCollected,
+          paymentMethod,referenceNo,
           changeDue: response.changeDue,
         });
       }
@@ -1286,7 +1339,7 @@ export default function PosTerminal() {
         <h1 className="pos-title">POS Terminal</h1>
 
         {posError && (
-          <p style={{ color: "#dc2626", fontWeight: 600, margin: "0 0 8px 0" }}>{posError}</p>
+          <p role="alert" style={{ color: "#dc2626", fontWeight: 600, margin: "0 0 8px 0" }}>{posError}</p>
         )}
 
         <div className="pos-tabs">
@@ -1320,19 +1373,12 @@ export default function PosTerminal() {
                 <ChevronDown size={16} className="pos-select-icon" />
               </div>
               <div className="pos-select-wrap">
-                <select
-                  className="pos-select"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                >
-                  {categories.map((c) => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
+                <select className="pos-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                  {categories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <ChevronDown size={16} className="pos-select-icon" />
               </div>
             </div>
-
             <div className="product-grid">
               {isLoadingProducts && <p className="no-results">Loading products…</p>}
               {!isLoadingProducts && loadError && (
@@ -1491,7 +1537,7 @@ export default function PosTerminal() {
                       onChange={(e) => setPaymentMethod(e.target.value)}
                     >
                       <option value="">Select Payment Method</option>
-                      {paymentMethods.map((m) => (
+                      {paymentMethods.filter(m=>customerType==='Delivery' || m!=='Cash on Delivery (COD)').map((m) => (
                         <option key={m} value={m}>{m}</option>
                       ))}
                     </select>
@@ -1520,6 +1566,12 @@ export default function PosTerminal() {
                     <span>Amount Net of VAT:</span>
                     <span>{formatPeso(amountNetOfVat)}</span>
                   </div>
+                  {customerType === 'Delivery' && (
+                    <div className="checkout-line">
+                      <span>Delivery Fee:</span>
+                      <span>{quoting ? 'Calculating...' : formatPeso(deliveryQuote?.fee || 0)}</span>
+                    </div>
+                  )}
                   <div className="checkout-line checkout-total">
                     <span>TOTAL AMOUNT DUE:</span>
                     <span>{formatPeso(totalAmountDue)}</span>
@@ -1530,7 +1582,7 @@ export default function PosTerminal() {
                   type="button"
                   className="pay-btn"
                   onClick={handlePay}
-                  disabled={cart.length === 0 || isProcessing}
+                  disabled={cart.length === 0 || isProcessing || !paymentMethod || (customerType==='Delivery' && (quoting || !deliveryQuote))}
                 >
                   {isProcessing ? "Processing…" : "Pay"}
                 </button>
@@ -1543,6 +1595,10 @@ export default function PosTerminal() {
       <PaymentModal
         isOpen={showPaymentModal}
         totalAmount={totalAmountDue}
+        paymentMethod={paymentMethod}
+        orderType={customerType}
+        items={cart.map(item=>({...item,isTank:products.find(p=>p.id===item.id)?.isTank ?? item.isTank}))}
+        busy={isProcessing}
         onCancel={() => setShowPaymentModal(false)}
         onConfirm={handleConfirmPayment}
       />

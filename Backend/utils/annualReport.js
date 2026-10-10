@@ -43,7 +43,10 @@ async function getAnnualReportData(pool, brandId, year) {
   if (!brandRow) throw new Error("Brand not found.");
 
   const [products] = await pool.query(
-    `SELECT ProductID, ProductName FROM Product WHERE BrandID = :brandId`,
+    `SELECT ProductID, ProductName FROM Product WHERE BrandID = :brandId
+     UNION
+     SELECT OriginalProductID AS ProductID, ProductNameSnapshot AS ProductName FROM InventoryTransaction
+     WHERE BrandIDSnapshot = :brandId AND OriginalProductID IS NOT NULL`,
     { brandId }
   );
 
@@ -53,7 +56,7 @@ async function getAnnualReportData(pool, brandId, year) {
     const size = extractStandardSize(p.ProductName);
     if (size == null) continue;
     if (!sizeToProductIds.has(size)) sizeToProductIds.set(size, []);
-    sizeToProductIds.get(size).push(p.ProductID);
+    if (!sizeToProductIds.get(size).includes(p.ProductID)) sizeToProductIds.get(size).push(p.ProductID);
   }
 
   const usedSizes = STANDARD_SIZES.filter((s) => sizeToProductIds.has(s));
@@ -66,18 +69,18 @@ async function getAnnualReportData(pool, brandId, year) {
   const allProductIds = usedSizes.flatMap((s) => sizeToProductIds.get(s));
 
   const [currentStockRows] = await pool.query(
-    `SELECT ProductID, SUM(StockOnHand) AS stock FROM Inventory
-     WHERE ProductID IN (${allProductIds.map(() => "?").join(",")})
-     GROUP BY ProductID`,
+    `SELECT COALESCE(ProductID,OriginalProductID) AS ProductID, SUM(StockOnHand) AS stock FROM Inventory
+     WHERE COALESCE(ProductID,OriginalProductID) IN (${allProductIds.map(() => "?").join(",")})
+     GROUP BY COALESCE(ProductID,OriginalProductID)`,
     allProductIds
   );
   const currentStockByProduct = new Map(currentStockRows.map((r) => [r.ProductID, Number(r.stock)]));
 
   const [txRows] = await pool.query(
-    `SELECT i.ProductID AS productId, t.TransactionType AS type, t.Quantity AS qty, t.TransactionDate AS date
+    `SELECT COALESCE(i.ProductID,t.OriginalProductID) AS productId, t.TransactionType AS type, t.Quantity AS qty, t.TransactionDate AS date
      FROM InventoryTransaction t
      JOIN Inventory i ON i.InventoryID = t.InventoryID
-     WHERE i.ProductID IN (${allProductIds.map(() => "?").join(",")})`,
+     WHERE COALESCE(i.ProductID,t.OriginalProductID) IN (${allProductIds.map(() => "?").join(",")})`,
     allProductIds
   );
 
@@ -103,13 +106,13 @@ async function getAnnualReportData(pool, brandId, year) {
     const size = productIdToSize.get(tx.productId);
     if (size == null) continue;
     const date = new Date(tx.date);
-    const signedQty = tx.type === "Stock In" ? Number(tx.qty) : -Number(tx.qty);
+    const signedQty = ["Stock In", "Restock"].includes(tx.type) ? Number(tx.qty) : -Number(tx.qty);
 
     if (date > yearEnd && date <= now) {
       netAfterYearEnd[size] += signedQty;
     } else if (date >= yearStart && date <= yearEnd) {
       const monthIdx = date.getMonth();
-      if (tx.type === "Stock In") monthlyBySizeAndMonth[size][monthIdx].purchases += Number(tx.qty);
+      if (["Stock In", "Restock"].includes(tx.type)) monthlyBySizeAndMonth[size][monthIdx].purchases += Number(tx.qty);
       else monthlyBySizeAndMonth[size][monthIdx].sales += Number(tx.qty);
     }
   }

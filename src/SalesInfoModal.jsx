@@ -20,9 +20,9 @@ export default function SalesInfoModal({ isOpen, sale, storeName = "Store Name",
 
   const items = sale.items || [];
   const subtotal = items.reduce((sum, item) => sum + item.qty * item.costPrice, 0);
-  const vat = subtotal * 0.12;
+  const vat = Number(sale.vat ?? ((subtotal-Number(sale.discount||0))*0.12/1.12));
   const discount = sale.discount || 0;
-  const total = subtotal + vat - discount;
+  const total = Number(sale.totalAmount ?? subtotal-discount+Number(sale.deliveryFee||0));
 
   return (
     <div className="sales-info-overlay" onClick={onClose}>
@@ -58,7 +58,7 @@ export default function SalesInfoModal({ isOpen, sale, storeName = "Store Name",
           <div className="items-header">
             <span className="col-product">Product Name</span>
             <span className="col-qty">Qty</span>
-            <span className="col-price">Cost Price</span>
+            <span className="col-price">Unit Price</span>
             <span className="col-subtotal">Subtotal</span>
           </div>
           {items.length === 0 ? (

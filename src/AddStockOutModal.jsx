@@ -17,6 +17,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
   const [products, setProducts] = useState([]);
   const [warehouseStockRows, setWarehouseStockRows] = useState([]);
   const [warehouseId, setWarehouseId] = useState("");
+  const [stockType,setStockType]=useState("filled");
   const [referenceNo, setReferenceNo] = useState("");
   const [reason, setReason] = useState("Damaged Product");
   const [otherReason, setOtherReason] = useState("");
@@ -38,6 +39,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
   useEffect(() => {
     if (!isOpen) return;
     setError("");
+    setStockType("filled");
     Promise.all([apiRequest("/warehouses"), apiRequest("/products?status=Active")])
       .then(async ([warehouseData, productData]) => {
         const visibleWarehouses = filterVisibleWarehouses(warehouseData);
@@ -59,9 +61,9 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
 
   if (!isOpen) return null;
 
-  const productMap = Object.fromEntries(products.map((p) => [p.productId, p]));
+  const productMap = Object.fromEntries(products.filter(p => stockType !== "empty" || Number(p.isTank)).map((p) => [p.productId, p]));
   const stockByProduct = new Map(
-    warehouseStockRows.map((row) => [String(row.productId), Number(row.currentStock || 0)])
+    warehouseStockRows.map((row) => [String(row.productId), Number((stockType === "empty" ? row.emptyStock : row.currentStock) || 0)])
   );
 
   const updateItem = (index, field, value) => {
@@ -121,6 +123,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
         method: "POST",
         body: JSON.stringify({
           warehouseId,
+          stockType,
           referenceNo: normalizedReferenceNo,
           reason,
           remarks: remarksParts.length ? remarksParts.join(" | ") : null,
@@ -147,6 +150,14 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
         {error && <p style={{ color: "#dc2626", fontWeight: 600, marginTop: -8 }}>{error}</p>}
 
         <div className="form-grid">
+          <div className="form-row">
+            <label className="form-label" htmlFor="AddStockOut-stock-type">Stock Type</label>
+            <span className="form-colon">:</span>
+            <select id="AddStockOut-stock-type" className="form-select" value={stockType} onChange={e=>{setStockType(e.target.value);setItems([{productId:"",quantity:""}]);}}>
+              <option value="filled">Filled / Sellable Stock</option>
+              <option value="empty">Empty Tanks</option>
+            </select>
+          </div>
           <div className="form-row">
             <span className="form-label">Warehouse</span>
             <span className="form-colon">:</span>
@@ -242,7 +253,7 @@ export default function AddStockOutModal({ isOpen, onClose, onSuccess }) {
                         style={{ width: "100%", padding: "6px 8px" }}
                       >
                         <option value="">Select product</option>
-                        {products.map((p) => (
+                        {products.filter(p=>stockType!=="empty" || Number(p.isTank)).map((p) => (
                           <option key={p.productId} value={p.productId}>{p.name}</option>
                         ))}
                       </select>

@@ -98,6 +98,8 @@ export default function Sales() {
 
   useEffect(() => {
     loadSales();
+    const intervalId = window.setInterval(loadSales, 60000);
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const cashiers = useMemo(
@@ -212,28 +214,7 @@ export default function Sales() {
     setPrintingId(sale.id);
     try {
       const full = await apiRequest(`/sales/${sale.id}`);
-      const items = (full.items || []).map((it) => ({
-        name: it.name,
-        qty: it.qty,
-        unitPrice: Number(it.costPrice),
-        subtotal: Number(it.subtotal),
-      }));
-      const subtotal = items.reduce((s, it) => s + it.subtotal, 0);
-      const discount = Number(full.discount || 0);
-      const totalAmount = Number(full.amount || 0);
-      const vat = totalAmount - subtotal + discount; // back-calculated since GET /sales/:id doesn't store vat separately
-
-      printReceipt({
-        saleNo: full.saleNo,
-        datetime: full.datetime,
-        cashierName: full.cashierName,
-        orderType: full.type,
-        items,
-        subtotal,
-        discount,
-        vat: vat > 0 ? vat : 0,
-        totalAmount,
-      });
+      await printReceipt({...full,documentType:'invoice',orderType:full.type,totalAmount:Number(full.amount)});
     } catch (err) {
       setActionError(err.message || "Failed to load sale for printing.");
     } finally {
@@ -312,14 +293,15 @@ export default function Sales() {
                 <th>Date and Time</th>
                 <th>Cashier</th>
                 <th>Order ID</th>
-                <th>Type</th>
+                <th>Customer</th>
+                <th>Order Type</th>
                 <th>Amount</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={7} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
+                <tr><td colSpan={8} style={{ textAlign: "center", padding: 24 }}>Loading…</td></tr>
               )}
               {!isLoading &&
                 paginatedSales.map((sale) => (
@@ -328,6 +310,7 @@ export default function Sales() {
                     <td>{new Date(sale.datetime).toLocaleString()}</td>
                     <td>{sale.cashierName || sale.cashier}</td>
                     <td>{sale.orderId}</td>
+                    <td>{sale.customerName || " — "}</td>
                     <td>{sale.type || "—"}</td>
                     <td>{formatPeso(sale.amount)}</td>
                     <td>
@@ -365,7 +348,7 @@ export default function Sales() {
                 ))}
               {!isLoading && filteredSales.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="no-results-cell">
+                  <td colSpan={8} className="no-results-cell">
                     No sales match your filters.
                   </td>
                 </tr>
@@ -432,6 +415,7 @@ export default function Sales() {
                 cashierName: selectedSale.cashierName,
                 orderId: selectedSale.orderId,
                 discount: Number(selectedSale.discount),
+                vat:selectedSale.vat,totalAmount:Number(selectedSale.amount),deliveryFee:selectedSale.deliveryFee,
                 items: (selectedSale.items || []).map((it) => ({
                   name: it.name,
                   qty: it.qty,

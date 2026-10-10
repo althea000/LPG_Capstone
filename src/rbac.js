@@ -36,6 +36,7 @@ const ROLE_ACCESS = {
     MODULE_KEYS.settings,
   ],
   "operations supervisor": [
+    MODULE_KEYS.orders,
     MODULE_KEYS.dashboard,
     MODULE_KEYS.inventory,
     MODULE_KEYS.products,
@@ -77,9 +78,13 @@ const ROLE_ACCESS = {
   ],
   stockman: [MODULE_KEYS.inventory],
   "head maintenance": [MODULE_KEYS.inventory],
+  rider: [MODULE_KEYS.orders],
+  driver: [MODULE_KEYS.orders],
   drivers: [MODULE_KEYS.orders],
   helpers: [MODULE_KEYS.orders],
 };
+
+export function isRiderRole(role) { return ['rider','driver','drivers'].includes(canonicalRole(role)); }
 
 export function getAllowedNavIdsByRole(roleName) {
   return ROLE_ACCESS[canonicalRole(roleName)] || [];

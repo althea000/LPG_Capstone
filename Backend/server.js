@@ -83,6 +83,7 @@ app.use("/warehouses", warehouseRoutes);
 app.use("/users", userRoutes);
 app.use("/customers", customerRoutes);
 app.use("/orders", orderRoutes);
+app.use("/api/orders", orderRoutes);
 app.use("/sales", salesRoutes);
 app.use("/payments", paymentRoutes);
 app.use("/deliveries", deliveryRoutes);
@@ -93,11 +94,20 @@ app.use("/dashboard", dashboardRoutes);
 app.use("/reports", reportRoutes);
 app.use("/roles", roleRoutes);
 app.use("/settings", settingsRoutes);
+app.use("/delivery-rates", require("./routes/deliveryRateRoutes"));
 
 app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 4000;
+// Expiration processing also runs on queue reads. Per-order locks make concurrent sweeps safe.
+let sweeping=false;
+const expiryTimer=setInterval(async()=>{
+  if(sweeping)return;
+  sweeping=true;
+  try{const failures=await require('./services/orderLifecycle').sweepExpired();if(failures.length)console.error('Pickup expiry requires reconciliation:',failures);}catch(err){console.error('Pickup expiry:',err.message);}finally{sweeping=false;}
+},60000);
+expiryTimer.unref();
 app.listen(PORT, () => console.log(`GasTrack API listening on port ${PORT}`));
 
 

@@ -1,7 +1,7 @@
 ﻿
 SET FOREIGN_KEY_CHECKS = 0;
 
-DROP TABLE IF EXISTS UserActivity, DataActivityLog, Delivery, Payment, Sales,
+DROP TABLE IF EXISTS OrderSettlement, DeliveryAttempt, OrderStockAllocation, UserActivity, DataActivityLog, Delivery, Payment, Sales,
   OrderDetails, `Order`, Customer, TransferDetail, Transfer, InventoryTransaction,
   Inventory, PurchaseOrderItem, PurchaseOrder, RestockRecommendation, CompanySettings,
   User, Warehouse, Branch, Product, Supplier, Brand, Category, Role, Company;
@@ -48,7 +48,8 @@ CREATE TABLE Product (
   CategoryID    VARCHAR(20) NOT NULL,
   BrandID       VARCHAR(20) NOT NULL,
   SupplierID    VARCHAR(20) NOT NULL,
-  Unit          VARCHAR(30) NOT NULL,
+  Unit          ENUM('kg','meter','piece') NOT NULL DEFAULT 'piece',
+  UnitValue     DECIMAL(10,1) NULL,
   UnitPrice     DECIMAL(12,2) NOT NULL CHECK (UnitPrice >= 0),
   CostPrice     DECIMAL(12,2) NOT NULL CHECK (CostPrice >= 0),
   ReorderLevel  INT NOT NULL CHECK (ReorderLevel >= 0),
@@ -99,17 +100,23 @@ CREATE TABLE User (
 );
 
 CREATE TABLE Inventory (
+  OriginalProductID VARCHAR(20) NULL,
   InventoryID   VARCHAR(20) PRIMARY KEY,                -- INT-001
   WarehouseID   VARCHAR(20) NOT NULL,
-  ProductID     VARCHAR(20) NOT NULL,
+  ProductID     VARCHAR(20) NULL,
+  ProductNameSnapshot VARCHAR(150) NULL,
   StockOnHand   INT NOT NULL DEFAULT 0 CHECK (StockOnHand >= 0),
+  EmptyStock    INT NOT NULL DEFAULT 0 CHECK (EmptyStock >= 0),
   LastUpdated   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_warehouse_product (WarehouseID, ProductID),
   FOREIGN KEY (WarehouseID) REFERENCES Warehouse(WarehouseID),
-  FOREIGN KEY (ProductID)   REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID)   REFERENCES Product(ProductID) ON DELETE SET NULL
 );
 
 CREATE TABLE InventoryTransaction (
+  ProductNameSnapshot VARCHAR(150) NULL,
+  BrandIDSnapshot VARCHAR(20) NULL,
+  OriginalProductID VARCHAR(20) NULL,
   TransactionID    VARCHAR(20) PRIMARY KEY,             -- T-001
   InventoryID      VARCHAR(20) NOT NULL,
   UserID           VARCHAR(20) NOT NULL,
@@ -124,6 +131,7 @@ CREATE TABLE InventoryTransaction (
 );
 
 CREATE TABLE Transfer (
+  StockType     ENUM('filled','empty') NOT NULL DEFAULT 'filled',
   TransferID       VARCHAR(20) PRIMARY KEY,             -- TF-001
   FromWarehouseID  VARCHAR(20) NOT NULL,
   ToWarehouseID    VARCHAR(20) NOT NULL,
@@ -139,13 +147,15 @@ CREATE TABLE Transfer (
 CREATE TABLE TransferDetail (
   TransferDetailID  VARCHAR(20) PRIMARY KEY,            -- TD-001
   TransferID        VARCHAR(20) NOT NULL,
-  ProductID         VARCHAR(20) NOT NULL,
+  ProductID         VARCHAR(20) NULL,
+  ProductNameSnapshot VARCHAR(150) NULL,
   Quantity          INT NOT NULL CHECK (Quantity > 0),
   FOREIGN KEY (TransferID) REFERENCES Transfer(TransferID),
-  FOREIGN KEY (ProductID)  REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID)  REFERENCES Product(ProductID) ON DELETE SET NULL
 );
 
 CREATE TABLE Customer (
+  Landmark VARCHAR(255) NULL,
   CustomerID    VARCHAR(20) PRIMARY KEY,                -- CUST-001
   UserID        VARCHAR(20) NULL,
   CustomerType  VARCHAR(20) NOT NULL,                   -- Commercial | Residential
@@ -159,32 +169,67 @@ CREATE TABLE Customer (
 );
 
 CREATE TABLE `Order` (
+  PaymentMethod VARCHAR(30) NULL,
+  SubtotalSnapshot DECIMAL(12,2) NULL,
+  VatSnapshot DECIMAL(12,2) NULL,
+  TaxRateSnapshot DECIMAL(8,4) NULL,
+  DeliveryInstructions VARCHAR(255) NULL,
+  DeliveryVehicleID VARCHAR(50) NULL,
+  DeliveryDistanceKm DECIMAL(10,1) NULL,
+  CompanyID VARCHAR(20) NULL,
+  PickupStatus ENUM('Preparing','Ready for Pickup','Claimed','Cancelled','Unclaimed') NULL,
+  DeliveryStatus ENUM('Preparing','Out for Delivery','Failed Attempt','Delivered','Cancelled','Delivery Failed / Restocked') NULL,
+  PaymentStatus ENUM('Unpaid','Paid','Refund Pending','Refunded','Forfeited') NOT NULL DEFAULT 'Unpaid',
+  ScheduledPickupTime DATETIME NULL,
+  PickupDeadline DATETIME NULL,
+  DeliveryNo VARCHAR(50) NULL,
+  AssignedRiderID VARCHAR(20) NULL,
+  AttemptCount TINYINT NOT NULL DEFAULT 0,
+  MaxAttempts TINYINT NOT NULL DEFAULT 3,
+  LastAttemptDate DATETIME NULL,
+  NextAttemptDate DATETIME NULL,
+  DeliveredAt DATETIME NULL,
+  CancellationRemarks TEXT NULL,
+  RestockedAt DATETIME NULL,
+  ArchivedAt DATETIME NULL,
+  ResolutionAction ENUM('None','Refunded','Forfeited') NOT NULL DEFAULT 'None',
+  ResolutionReason VARCHAR(255) NULL,
+  EmptyCylinderReturned TINYINT(1) NOT NULL DEFAULT 0,
+  EmptyReturnsRecordedAt DATETIME NULL,
+  CashCollectedAmount DECIMAL(12,2) NOT NULL DEFAULT 0,
+  ReceiverName VARCHAR(150) NULL,
+  ReceiverSignature TEXT NULL,
+  Landmark VARCHAR(255) NULL,
   OrderID      VARCHAR(20) PRIMARY KEY,                 -- ORD-001
-  CustomerID   VARCHAR(20) NOT NULL,
+  CustomerID   VARCHAR(20) NULL,
   OrderNo      VARCHAR(50) NOT NULL UNIQUE,
   OrderDate    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   OrderType    VARCHAR(20) NOT NULL,                    -- Walk-in, Pickup, Delivery
   OrderStatus  VARCHAR(30) NOT NULL,
   TotalAmount  DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0),   -- items + delivery charge
   Remarks      VARCHAR(255) NULL,
-  FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID)
+  FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID) ON DELETE SET NULL ON UPDATE CASCADE
 );
 
 CREATE TABLE OrderDetails (
   OrderDetailID  VARCHAR(20) PRIMARY KEY,               -- OD-001
   OrderID        VARCHAR(20) NOT NULL,
-  ProductID      VARCHAR(20) NOT NULL,
+  ProductID      VARCHAR(20) NULL,
+  ProductNameSnapshot VARCHAR(150) NULL,
+  UnitPriceSnapshot DECIMAL(12,2) NULL,
+  UnitSnapshot VARCHAR(20) NULL,
+  UnitValueSnapshot DECIMAL(10,1) NULL,
   Quantity       INT NOT NULL CHECK (Quantity > 0),
   UnitPrice      DECIMAL(12,2) NOT NULL CHECK (UnitPrice >= 0),
   Subtotal       DECIMAL(12,2) NOT NULL CHECK (Subtotal >= 0),
   FOREIGN KEY (OrderID)   REFERENCES `Order`(OrderID),
-  FOREIGN KEY (ProductID) REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID) REFERENCES Product(ProductID) ON DELETE SET NULL
 );
 
 CREATE TABLE Sales (
   SaleID         VARCHAR(20) PRIMARY KEY,               -- S-001
   OrderID        VARCHAR(20) NULL,
-  CustomerID     VARCHAR(20) NOT NULL,
+  CustomerID     VARCHAR(20) NULL,
   UserID         VARCHAR(20) NOT NULL,
   SaleNo         VARCHAR(50) NOT NULL UNIQUE,
   SaleDate       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -192,13 +237,14 @@ CREATE TABLE Sales (
   TotalAmount    DECIMAL(12,2) NOT NULL CHECK (TotalAmount >= 0), -- Order total - discount (amount payable)
   Remarks        VARCHAR(255) NULL,
   FOREIGN KEY (OrderID)    REFERENCES `Order`(OrderID),
-  FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID),
+  FOREIGN KEY (CustomerID) REFERENCES Customer(CustomerID) ON DELETE SET NULL ON UPDATE CASCADE,
   FOREIGN KEY (UserID)     REFERENCES User(UserID)
 );
 
 CREATE TABLE RestockRecommendation (
   RestockID            VARCHAR(20) PRIMARY KEY,         -- R-001
-  ProductID            VARCHAR(20) NOT NULL,
+  ProductID            VARCHAR(20) NULL,
+  ProductNameSnapshot VARCHAR(150) NULL,
   SupplierID           VARCHAR(20) NOT NULL,
   StockOnHand          INT NOT NULL DEFAULT 0 CHECK (StockOnHand >= 0),
   PredictedDemand      INT NOT NULL CHECK (PredictedDemand >= 0),
@@ -207,7 +253,7 @@ CREATE TABLE RestockRecommendation (
   ForecastDate         DATE NOT NULL,
   Status               VARCHAR(20) NOT NULL,
   CreatedAt            DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (ProductID)  REFERENCES Product(ProductID),
+  FOREIGN KEY (ProductID)  REFERENCES Product(ProductID) ON DELETE SET NULL,
   FOREIGN KEY (SupplierID) REFERENCES Supplier(SupplierID)
 );
 
@@ -231,12 +277,13 @@ CREATE TABLE PurchaseOrder (
 CREATE TABLE PurchaseOrderItem (
   PurchaseOrderItemID  VARCHAR(20) PRIMARY KEY,         -- POI-001
   PurchaseOrderID      VARCHAR(20) NOT NULL,
-  ProductID            VARCHAR(20) NOT NULL,
+  ProductID            VARCHAR(20) NULL,
+  ProductNameSnapshot VARCHAR(150) NULL,
   Quantity             INT NOT NULL CHECK (Quantity > 0),
   UnitCost             DECIMAL(12,2) NOT NULL CHECK (UnitCost >= 0),
   Subtotal             DECIMAL(12,2) NOT NULL CHECK (Subtotal >= 0),
   FOREIGN KEY (PurchaseOrderID) REFERENCES PurchaseOrder(PurchaseOrderID),
-  FOREIGN KEY (ProductID)       REFERENCES Product(ProductID)
+  FOREIGN KEY (ProductID)       REFERENCES Product(ProductID) ON DELETE SET NULL
 );
 
 CREATE TABLE Payment (
@@ -248,6 +295,8 @@ CREATE TABLE Payment (
   AmountPaid       DECIMAL(12,2) NOT NULL CHECK (AmountPaid > 0),
   PaymentDate      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   ReferenceNo      VARCHAR(50) NULL,
+  AmountTendered DECIMAL(12,2) NULL,
+  ChangeDue DECIMAL(12,2) NULL,
   Remarks          VARCHAR(255) NULL,
   FOREIGN KEY (SaleID)          REFERENCES Sales(SaleID),
   FOREIGN KEY (PurchaseOrderID) REFERENCES PurchaseOrder(PurchaseOrderID)
@@ -293,6 +342,8 @@ CREATE TABLE UserActivity (
 );
 
 CREATE TABLE CompanySettings (
+  AllowIssueRefund TINYINT(1) NOT NULL DEFAULT 1,
+  AllowForfeitPayment TINYINT(1) NOT NULL DEFAULT 1,
   CompanyID          VARCHAR(20) PRIMARY KEY,
   FullName           VARCHAR(150) NULL,
   Address            VARCHAR(255) NULL,
@@ -322,6 +373,32 @@ CREATE TABLE CompanySettings (
   FOREIGN KEY (CompanyID) REFERENCES Company(CompanyID)
 );
 
+CREATE TABLE IF NOT EXISTS OrderStockAllocation (
+    OrderID VARCHAR(20) NOT NULL, InventoryID VARCHAR(20) NOT NULL, Quantity INT NOT NULL,
+    PRIMARY KEY(OrderID,InventoryID), FOREIGN KEY(OrderID) REFERENCES `Order`(OrderID), FOREIGN KEY(InventoryID) REFERENCES Inventory(InventoryID));
+
+CREATE TABLE IF NOT EXISTS DeliveryAttempt (
+    AttemptID VARCHAR(20) PRIMARY KEY, OrderID VARCHAR(20) NOT NULL, AttemptNumber TINYINT NOT NULL,
+    RiderID VARCHAR(20) NULL, DispatchedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FailedAt DATETIME NULL, FailureReason VARCHAR(100) NULL, DriverNotes TEXT NULL,
+    UNIQUE KEY uq_order_attempt(OrderID,AttemptNumber), FOREIGN KEY(OrderID) REFERENCES `Order`(OrderID));
+
+CREATE TABLE IF NOT EXISTS OrderSettlement (
+    SettlementID VARCHAR(20) PRIMARY KEY, OrderID VARCHAR(20) NOT NULL UNIQUE, UserID VARCHAR(20) NOT NULL,
+    Action ENUM('Refunded','Forfeited') NOT NULL, PaidAmount DECIMAL(12,2) NOT NULL, RefundAmount DECIMAL(12,2) NOT NULL,
+    RetainedAmount DECIMAL(12,2) NOT NULL, Reason VARCHAR(255) NOT NULL, CreatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(OrderID) REFERENCES `Order`(OrderID));
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 
+
+CREATE TABLE DocumentSequence (SequenceKey VARCHAR(100) PRIMARY KEY,LastNumber INT NOT NULL);
+CREATE TABLE DeliveryVehicleRate (
+  VehicleID VARCHAR(50) PRIMARY KEY,CompanyID VARCHAR(20) NOT NULL,
+  VehicleName VARCHAR(100) NOT NULL,CapacityLabel VARCHAR(100) NOT NULL,
+  MaxWeightKg DECIMAL(10,1) NOT NULL,BaseRate DECIMAL(10,2) NOT NULL,PerKm DECIMAL(10,2) NOT NULL,
+  MinSubtotalForFree DECIMAL(12,2) NOT NULL DEFAULT 0,FreeDistanceKm DECIMAL(10,1) NOT NULL DEFAULT 5,
+  Enabled TINYINT(1) NOT NULL DEFAULT 1,
+  FOREIGN KEY(CompanyID) REFERENCES Company(CompanyID) ON DELETE CASCADE
+);

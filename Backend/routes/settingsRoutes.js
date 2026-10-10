@@ -40,6 +40,8 @@ function mapRow(row) {
     language: row.Language,
     theme: row.Theme,
 
+    allowIssueRefund: !!row.AllowIssueRefund,
+    allowForfeitPayment: !!row.AllowForfeitPayment,
     updatedAt: row.UpdatedAt,
   };
 }
@@ -189,6 +191,13 @@ router.put(
   })
 );
 
+router.put('/pickup-policy',authorize('Admin','Manager','Store Supervisor'),asyncHandler(async(req,res)=>{
+  await ensureRow(req.user.companyId);
+  const {allowIssueRefund,allowForfeitPayment}=req.body;
+  if(typeof allowIssueRefund!=='boolean' || typeof allowForfeitPayment!=='boolean' || (!allowIssueRefund && !allowForfeitPayment)) throw new ApiError(400,'At least one resolution option must remain enabled.');
+  await pool.query(`UPDATE CompanySettings SET AllowIssueRefund=:refund,AllowForfeitPayment=:forfeit WHERE CompanyID=:id`,{refund:allowIssueRefund?1:0,forfeit:allowForfeitPayment?1:0,id:req.user.companyId});
+  res.json({message:'Pickup & refund policy saved.'});
+}));
 module.exports = router;
 
 

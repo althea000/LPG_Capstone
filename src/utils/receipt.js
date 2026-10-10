@@ -27,128 +27,53 @@ function esc(val) {
   }[c]));
 }
 
-function formatMoney(amount, currency = "PHP") {
-  const symbol = currency === "PHP" ? "₱" : currency + " ";
-  return `${symbol}${Number(amount || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+function money(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+export function receiptFromOrder(order,documentType='invoice'){
+  return {...order,documentType,orderNo:order.id,saleNo:order.saleNo,datetime:order.date,orderType:order.type,deliveryNo:order.drNo,totalAmount:Number(order.totalAmount),customerName:order.customerName,customerPhone:order.customerPhone,customerAddress:order.customerAddress,pickupDetails:{pickupDate:order.scheduledPickupTime,address:order.customerAddress,contactNumber:order.customerPhone},deliveryDetails:{address:order.deliveryAddress,instructions:order.deliveryInstructions,riderName:order.deliveryRiderName}};
 }
-
-function buildReceiptHtml(sale, settings) {
-  const businessName = settings?.fullName || "GasTrack";
-  const address = settings?.address || "";
-  const phone = settings?.phone || "";
-  const email = settings?.contactEmail || "";
-  const logo = settings?.showLogoOnReceipt !== false ? settings?.logoDataUrl : null;
-  const headerText = settings?.receiptHeader || "";
-  const footerMessage = settings?.footerMessage || "Thank you for your purchase!";
-  const currency = settings?.currency || "PHP";
-  const showTaxBreakdown = settings?.showTaxBreakdown !== false;
-  const printSize = settings?.printSize === "58mm" ? "58mm" : "80mm";
-  const pageWidthMm = printSize === "58mm" ? 58 : 80;
-
-  const items = sale.items || [];
-  const subtotal = sale.subtotal ?? items.reduce((s, it) => s + Number(it.subtotal ?? it.qty * it.unitPrice), 0);
-  const discount = Number(sale.discount || 0);
-  const vat = Number(sale.vat || 0);
-  const deliveryFee = Number(sale.deliveryFee || 0);
-  const total = sale.totalAmount ?? subtotal - discount + vat + deliveryFee;
-
-  const itemRows = items
-    .map(
-      (it) => `
-      <tr>
-        <td class="cell-name">${esc(it.name)}</td>
-        <td class="cell-qty">${esc(it.qty)}</td>
-        <td class="cell-price">${formatMoney(it.unitPrice ?? it.costPrice, currency)}</td>
-        <td class="cell-total">${formatMoney(it.subtotal ?? it.qty * (it.unitPrice ?? it.costPrice), currency)}</td>
-      </tr>`
-    )
-    .join("");
-
-  return `
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>Receipt ${esc(sale.saleNo || "")}</title>
-        <style>
-          @page { size: ${pageWidthMm}mm auto; margin: 0; }
-          * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-          html, body {
-            font-family: 'Courier New', Consolas, monospace;
-            width: ${pageWidthMm}mm;
-            margin: 0 auto;
-            padding: 10px 8px;
-            color: #111827;
-            font-size: ${pageWidthMm === 58 ? "10px" : "11px"};
-          }
-          .center { text-align: center; }
-          .logo { max-width: 70%; max-height: 64px; object-fit: contain; margin-bottom: 6px; }
-          .business-name { font-weight: 700; font-size: 1.15em; margin: 0; letter-spacing: 0.5px; }
-          .business-meta { font-size: 0.85em; color: #374151; margin: 2px 0; line-height: 1.4; }
-          .header-text { font-size: 0.9em; font-style: italic; margin: 4px 0; }
-          hr { border: none; border-top: 1px dashed #9ca3af; margin: 8px 0; }
-          .meta-row { display: flex; justify-content: space-between; font-size: 0.9em; margin: 2px 0; }
-          table { width: 100%; border-collapse: collapse; margin-top: 6px; }
-          th { text-align: left; font-size: 0.85em; border-bottom: 1px solid #111827; padding-bottom: 3px; }
-          td { padding: 3px 0; font-size: 0.88em; vertical-align: top; }
-          .cell-name { width: 46%; }
-          .cell-qty { width: 12%; text-align: center; }
-          .cell-price { width: 21%; text-align: right; }
-          .cell-total { width: 21%; text-align: right; }
-          .totals { margin-top: 8px; }
-          .totals-row { display: flex; justify-content: space-between; font-size: 0.9em; padding: 1px 0; }
-          .grand-total { font-weight: 700; font-size: 1.05em; border-top: 1px solid #111827; margin-top: 4px; padding-top: 4px; }
-          .footer { text-align: center; margin-top: 14px; font-size: 0.85em; color: #374151; }
-          .official-tag { text-align: center; font-size: 0.7em; color: #9ca3af; margin-top: 10px; letter-spacing: 0.5px; }
-        </style>
-      </head>
-      <body>
-        <div class="center">
-          ${logo ? `<img src="${logo}" class="logo" alt="Logo" />` : ""}
-          <p class="business-name">${esc(businessName)}</p>
-          ${address ? `<p class="business-meta">${esc(address)}</p>` : ""}
-          ${phone || email ? `<p class="business-meta">${[phone, email].filter(Boolean).map(esc).join(" Â· ")}</p>` : ""}
-          ${headerText ? `<p class="header-text">${esc(headerText)}</p>` : ""}
-        </div>
-
-        <hr />
-
-        <div class="meta-row"><span>Receipt No.</span><span>${esc(sale.saleNo || "—")}</span></div>
-        <div class="meta-row"><span>Date</span><span>${esc(sale.datetime ? new Date(sale.datetime).toLocaleString() : new Date().toLocaleString())}</span></div>
-        ${sale.cashierName ? `<div class="meta-row"><span>Cashier</span><span>${esc(sale.cashierName)}</span></div>` : ""}
-        ${sale.customerName ? `<div class="meta-row"><span>Customer</span><span>${esc(sale.customerName)}</span></div>` : ""}
-        ${sale.orderType ? `<div class="meta-row"><span>Type</span><span>${esc(sale.orderType)}</span></div>` : ""}
-
-        <hr />
-
-        <table>
-          <thead>
-            <tr>
-              <th class="cell-name">Item</th>
-              <th class="cell-qty">Qty</th>
-              <th class="cell-price">Price</th>
-              <th class="cell-total">Total</th>
-            </tr>
-          </thead>
-          <tbody>${itemRows}</tbody>
-        </table>
-
-        <hr />
-
-        <div class="totals">
-          <div class="totals-row"><span>Subtotal</span><span>${formatMoney(subtotal, currency)}</span></div>
-          ${discount > 0 ? `<div class="totals-row"><span>Discount</span><span>-${formatMoney(discount, currency)}</span></div>` : ""}
-          ${showTaxBreakdown && vat > 0 ? `<div class="totals-row"><span>Tax${sale.taxRate ? ` (${(sale.taxRate * 100).toFixed(0)}%)` : ""}</span><span>${formatMoney(vat, currency)}</span></div>` : ""}
-          ${deliveryFee > 0 ? `<div class="totals-row"><span>Delivery Fee</span><span>${formatMoney(deliveryFee, currency)}</span></div>` : ""}
-          <div class="totals-row grand-total"><span>TOTAL</span><span>${formatMoney(total, currency)}</span></div>
-          ${sale.amountCollected != null ? `<div class="totals-row"><span>Amount Paid</span><span>${formatMoney(sale.amountCollected, currency)}</span></div>` : ""}
-          ${sale.changeDue != null ? `<div class="totals-row"><span>Change</span><span>${formatMoney(sale.changeDue, currency)}</span></div>` : ""}
-        </div>
-
-        <div class="footer">${esc(footerMessage)}</div>
-        <div class="official-tag">This serves as your official receipt Â· Powered by GasTrack</div>
-      </body>
-    </html>
-  `;
+export function buildReceiptHtml(sale,settings={}) {
+  const type=sale.orderType || sale.type || 'Walk-in';
+  const pickup=type==='Pickup' || type==='Pick-up',delivery=type==='Delivery',walkin=type==='Walk-in';
+  const method=sale.paymentMethod || "\u2014",cod=method==='Cash on Delivery (COD)' || method==='COD';
+  const documentType=sale.documentType || (pickup?'pickup':delivery&&cod?'delivery':'invoice');
+  const slip=documentType!=='invoice',title=documentType==='pickup'?'PICKUP SLIP':documentType==='delivery'?'DELIVERY SLIP':'SALES INVOICE';
+  const details=delivery?sale.deliveryDetails || sale.fulfillment || {}:sale.pickupDetails || sale.fulfillment || {};
+  const items=sale.items || [];
+  const subtotal=Number(sale.subtotal ?? items.reduce((sum,i)=>sum+Number(i.subtotal ?? i.qty*(i.unitPrice ?? i.costPrice)),0));
+  const discount=Number(sale.discount||0),inclusive=subtotal-discount,rate=Number(sale.taxRate ?? (settings.taxEnabled===false?0:Number(settings.taxRate ?? 12)/100));
+  const vat=Number(sale.vat ?? (rate?inclusive*rate/(1+rate):0)),fee=Number(sale.deliveryFee||0),total=Number(sale.totalAmount ?? sale.amount ?? inclusive+fee);
+  const row=(label,value)=>`<div class="row"><span>${esc(label)}</span><span>${esc(value)}</span></div>`;
+  const amount=(label,value)=>row(label,'PHP '+money(value));
+  const date=sale.datetime?new Date(sale.datetime):new Date();
+  const dateText=date.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})+' | '+date.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',hour12:true});
+  const start=details.pickupDate || details.pickupTime,deadline=sale.pickupDeadline || details.deadline;
+  const windowText=start?new Date(start).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' to '+new Date(deadline || new Date(start).getTime()+2*86400000).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' (3 Days)':'\u2014';
+  const digital=['GCash','Card','Bank Transfer'].includes(method);
+  const tendered=Number(sale.amountCollected ?? sale.amountPaid ?? total);
+  const change=Number(sale.changeDue ?? Math.max(0,tendered-total));
+  const width=settings.printSize==='58mm'?58:80;
+  const businessAddress=esc(settings.address || '#266 F. Blumentritt St., Batis 1500 City of San Juan')
+    .replace(/,\s*/, ',<br>')
+    .replace(/City of San Juan/g, '<span class="address-city">City of San Juan</span>');
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc(title)} ${esc(sale.saleNo || sale.orderNo)}</title><style>
+  @page{size:${width}mm auto;margin:0}*{box-sizing:border-box}body{width:${width}mm;padding:8px;margin:auto;font:10px 'Courier New',monospace;color:#111}h1,h2{text-align:center;font-size:12px;margin:8px 0}.center{text-align:center}.business-address{line-height:1.4;text-wrap:balance;overflow-wrap:break-word}.address-city{white-space:nowrap}p{margin:3px 0}.rule{border-top:2px double #111;margin:10px 0}.row{display:flex;justify-content:space-between;gap:8px;margin:4px 0}.row span:last-child{text-align:right;overflow-wrap:anywhere}table{width:100%;border-collapse:collapse}th,td{padding:4px 2px;text-align:right}th:first-child,td:first-child{text-align:left;width:45%}thead{border-bottom:1px dashed #111}.total{font-weight:bold;font-size:11px}.footer{margin:16px 0;text-align:center}
+  </style></head><body><div class="rule"></div><h1>${esc(settings.fullName || 'GLORIOUS COMMERCIAL EXPORTS, INCORPORATED')}</h1><div class="center"><p class="business-address">${businessAddress}</p><p>NCR, Second District, Philippines</p><p>VAT Reg. TIN: 000-315-874-00002</p></div><h2>${title}</h2><div class="rule"></div>
+  ${documentType==='delivery'?row('Delivery No.',sale.deliveryNo || details.deliveryNo || "\u2014"):''}
+  ${row(slip?'Order Ref No.':'Sales No.',slip?sale.orderNo || sale.orderId:sale.saleNo)}
+  ${row('Date & Time',dateText)}${row('Transaction',pickup?'Pickup':type)}${row('Cashier',sale.cashierName || "\u2014")}
+  ${delivery?row('Rider',details.riderName || details.rider || 'Unassigned')+(documentType==='invoice'?row('Delivery No.',sale.deliveryNo || details.deliveryNo || "\u2014"):''):''}
+  <div class="rule"></div>${row('Customer Name',walkin?'________________________________':sale.customerName || details.customerName || "\u2014")}
+  ${!walkin?row('Contact No.',sale.customerPhone || details.contactNumber || "\u2014"):''}
+  ${row(delivery?'Delivery Address':'Address',walkin?'________________________________':details.address || sale.customerAddress || "\u2014")}
+  ${delivery?row('Delivery Notes',details.instructions || sale.deliveryInstructions || "\u2014"):''}
+  ${documentType==='pickup'?row('Pick-up Window',windowText):''}
+  <div class="rule"></div><table><thead><tr><th>Item</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead><tbody>${items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.qty)}</td><td>${money(i.unitPrice ?? i.costPrice)}</td><td>${money(i.subtotal ?? i.qty*(i.unitPrice ?? i.costPrice))}</td></tr>`).join('')}</tbody></table>
+  <p>Items Purchased: ${items.reduce((sum,i)=>sum+Number(i.qty),0)}</p><div class="rule"></div>
+  ${amount('Subtotal (VAT Inclusive)',subtotal)}${amount('Less: Discount',discount)}${amount('Total Sales (VAT Inclusive)',inclusive)}${amount('Less: VAT ('+(rate*100).toFixed(0)+'%)',vat)}${amount('Amount Net of VAT',inclusive-vat)}${delivery?amount('Delivery Fee',fee):''}
+  <div class="rule"></div><div class="total">${amount('TOTAL AMOUNT DUE',total)}</div><div class="rule"></div>
+  ${row('Payment Method',method)}${digital?row('Reference No.',sale.referenceNo || "\u2014"):''}
+  ${cod && slip?amount('Amount to Collect',total):amount(documentType==='pickup'?'Amount Received':'Amount Paid',tendered)+amount('Change',change)}
+  <div class="rule"></div><div class="footer">${slip?'THIS IS NOT AN OFFICIAL SALES INVOICE.'+(documentType==='pickup'?'<p>Official invoice to be generated upon pickup.</p>':''):'<p>Thank you for your purchase!</p><p>Please come again and visit us.</p>'}</div>${documentType==='delivery'?'<p>Receiver signature: __________________</p><p>Empty cylinder collected: [ ]</p>':''}<div class="rule"></div></body></html>`;
 }
 
 // Prints via a hidden same-page iframe instead of window.open(). This is the

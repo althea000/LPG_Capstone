@@ -11,6 +11,7 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
 
   const [fromWarehouseId, setFromWarehouseId] = useState("");
   const [toWarehouseId, setToWarehouseId] = useState("");
+  const [stockType,setStockType]=useState("filled");
   const [status, setStatus] = useState("Completed");
   const [remarks, setRemarks] = useState("");
   const [items, setItems] = useState([{ productId: "", quantity: "" }]);
@@ -48,9 +49,9 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
   const sourceInventory = useMemo(
     () =>
       inventory.filter(
-        (row) => row.warehouseId === fromWarehouseId && Number(row.currentStock) > 0
+        (row) => row.warehouseId === fromWarehouseId && (stockType!=="empty" || Number(row.isTank)) && Number(stockType==="empty"?row.emptyStock:row.currentStock) > 0
       ),
-    [inventory, fromWarehouseId]
+    [inventory, fromWarehouseId, stockType]
   );
 
   const sourceProductMap = useMemo(() => {
@@ -59,11 +60,11 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
       map.set(row.productId, {
         productId: row.productId,
         productName: row.productName,
-        currentStock: Number(row.currentStock),
+        currentStock: Number(stockType==="empty"?row.emptyStock:row.currentStock),
       });
     }
     return map;
-  }, [sourceInventory]);
+  }, [sourceInventory, stockType]);
 
   const updateItem = (index, field, value) => {
     setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
@@ -83,6 +84,7 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
     setItems([{ productId: "", quantity: "" }]);
     setRemarks("");
     setStatus("Completed");
+    setStockType("filled");
     setError("");
     onClose();
   };
@@ -118,6 +120,7 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
         method: "POST",
         body: JSON.stringify({
           fromWarehouseId,
+          stockType,
           toWarehouseId,
           status,
           remarks: remarks || null,
@@ -147,6 +150,14 @@ export default function AddTransferModal({ isOpen, onClose, onSuccess }) {
         {error && <p style={{ color: "#dc2626", fontWeight: 600, marginTop: -8 }}>{error}</p>}
 
         <div className="form-grid">
+          <div className="form-row">
+            <label className="form-label" htmlFor="transfer-stock-type">Stock Type</label>
+            <span className="form-colon">:</span>
+            <select id="transfer-stock-type" className="form-select" value={stockType} onChange={e=>{setStockType(e.target.value);setItems([{productId:'',quantity:''}]);}}>
+              <option value="filled">Filled / Sellable Stock</option>
+              <option value="empty">Empty Tanks</option>
+            </select>
+          </div>
           <div className="form-row">
             <span className="form-label">From Warehouse</span>
             <span className="form-colon">:</span>

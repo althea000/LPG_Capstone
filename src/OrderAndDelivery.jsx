@@ -1,873 +1,188 @@
-﻿import { useEffect, useMemo, useState } from "react";
-import { apiRequest } from "./api";
-import { printReceipt } from "./utils/receipt";
-import "./OrderAndDelivery.css";
-
-const peso = (n) =>
-  "₱ " + Number(n || 0).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const orderStatusClass = {
-  Preparing: "od-badge-yellow",
-  Ready: "od-badge-blue",
-  Completed: "od-badge-green",
-  Cancelled: "od-badge-red",
-};
-
-const paymentStatusClass = {
-  Paid: "od-badge-green",
-  Unpaid: "od-badge-red",
-};
-
-const deliveryStatusClass = {
-  Pending: "od-badge-yellow",
-  "Out for Delivery": "od-badge-blue",
-  Delivered: "od-badge-green",
-  Failed: "od-badge-red",
-};
-
-const IconView = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-    <polyline points="14 2 14 8 20 8"></polyline>
-    <circle cx="10" cy="13" r="2"></circle>
-    <line x1="11.4" y1="14.4" x2="14" y2="17"></line>
-  </svg>
-);
-const IconEdit = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
-  </svg>
-);
-const IconPrint = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="6 9 6 2 18 2 18 9"></polyline>
-    <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
-    <rect x="6" y="14" width="12" height="8"></rect>
-  </svg>
-);
-const IconDelete = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 6 5 6 21 6"></polyline>
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-  </svg>
-);
-
-function Badge({ text, map }) {
-  return <span className={`od-badge ${map[text] || "od-badge-gray"}`}>{text}</span>;
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FileText, Pencil, Printer, Trash2 } from 'lucide-react';
+import { apiRequest } from './api';
+import { printReceipt, receiptFromOrder } from './utils/receipt';
+import { isRiderRole } from './rbac';
+import Pagination from './Pagination';
+import EmptyCylinderReturns from './EmptyCylinderReturns';
+import './OrderAndDelivery.css';
+const peso=n=>new Intl.NumberFormat('en-PH',{style:'currency',currency:'PHP'}).format(Number(n||0));
+const date=value=>value ? new Date(value).toLocaleString():' — ';
+const pickupStatuses=['Preparing','Ready for Pickup','Claimed','Cancelled','Unclaimed'];
+const deliveryStatuses=['Preparing','Out for Delivery','Failed Attempt','Delivered','Cancelled','Delivery Failed / Restocked'];
+const failureReasons=['Customer Unreachable','House Closed / No Recipient','Incorrect Address','Refused Acceptance','Other'];
+function Badge({value}) {
+  const tone=['Paid','Claimed','Delivered','Refunded','Active'].includes(value)?'green':['Cancelled','Unpaid','Unclaimed','Delivery Failed / Restocked','Failed Attempt'].includes(value)?'red':['Out for Delivery','Ready for Pickup'].includes(value)?'blue':'yellow';
+  return <span className={`od-badge od-badge-${tone}`}>{value==='Unclaimed'?'⚠ Expired (Unclaimed)':value || ' — '}</span>;
 }
-
-function Field({ label, children }) {
-  return (
-    <div className="od-form-row">
-      <label>{label}</label>
-      {children}
-    </div>
-  );
+function Field({label,children}) {return <div className="od-form-row"><label>{label}</label>{children}</div>;}
+function Modal({title,onClose,children}) {
+  const ref=useRef(null);
+  useEffect(()=>{
+    const previous=document.activeElement;
+    ref.current?.querySelector('input,select,textarea,button')?.focus();
+    const listener=e=>{
+      if(e.key==='Escape')onClose();
+      if(e.key==='Tab'){
+        const elements=Array.from(ref.current?.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex="0"]')||[]);
+        const first=elements[0],last=elements[elements.length-1];
+        if(e.shiftKey && document.activeElement===first){e.preventDefault();last?.focus();}
+        else if(!e.shiftKey && document.activeElement===last){e.preventDefault();first?.focus();}
+      }
+    };
+    document.addEventListener('keydown',listener);
+    return()=>{document.removeEventListener('keydown',listener);previous?.focus();};
+  },[onClose]);
+  return <div className="od-modal-overlay open"><div className="od-modal" ref={ref} role="dialog" aria-modal="true" aria-labelledby="od-dialog-title"><h3 id="od-dialog-title">{title}</h3>{children}</div></div>;
 }
-
-function Row({ label, value, bold }) {
-  return (
-    <div className={bold ? "od-grand" : ""}>
-      <span>{label}</span>
-      <span>{value}</span>
-    </div>
-  );
+function OrderSummary({order}) {
+  return <><p><strong>{order.id}</strong> · {order.customerName || ' — '} · {order.customerPhone || ' — '}</p><p>{order.deliveryAddress || order.customerAddress}</p>
+    <div className="od-items-header"><span>Product</span><span>Qty</span><span>Unit price</span><span>Subtotal</span></div>
+    {(order.items||[]).map((item,i)=><div key={i} className="od-item-row"><span>{item.name}<small className="od-cell-detail">{item.unit==='piece'?'1 piece':`${item.unitValue ?? ' — '} ${item.unit || ''}`}</small></span><span>{item.qty}</span><span>{peso(item.unitPrice)}</span><span>{peso(item.subtotal)}</span></div>)}
+    <p><strong>Total:</strong> {peso(order.totalAmount)} · <strong>Paid:</strong> {peso(order.amountPaid)} ({order.paymentMethod || ' — '})</p>
+    {order.type==='Delivery' && <p>Delivery fee: {peso(order.deliveryFee)} · Attempt {order.attemptCount}/{order.maxAttempts}</p>}
+    {(order.attempts||[]).map(a=><p key={a.attempt} className="od-attempt-log">Attempt {a.attempt} · {date(a.dispatchedAt)}{a.failedAt && <> · {a.reason}: {a.notes}</>}</p>)}
+  </>;
 }
-
-function printOrderReceipt(order) {
-  const items = (order.items || []).map((it) => ({
-    name: it.name,
-    qty: it.qty,
-    unitPrice: Number(it.unitPrice),
-    subtotal: Number(it.subtotal),
-  }));
-  const subtotal = items.reduce((s, it) => s + it.subtotal, 0);
-
-  printReceipt({
-    saleNo: order.id,
-    datetime: order.date,
-    customerName: order.customerName,
-    orderType: order.type,
-    items,
-    subtotal,
-    discount: 0,
-    vat: 0,
-    deliveryFee: Number(order.deliveryFee || 0),
-    totalAmount: Number(order.totalAmount || subtotal + Number(order.deliveryFee || 0)),
-  });
-}
-
-function NewOrderModal({ isOpen, onClose, onCreated, customers }) {
-  const [products, setProducts] = useState([]);
-  const [customerId, setCustomerId] = useState("");
-  const [orderType, setOrderType] = useState("Walk-in");
-  const [deliveryAddress, setDeliveryAddress] = useState("");
-  const [items, setItems] = useState([{ productId: "", qty: "" }]);
-  const [markPaid, setMarkPaid] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    if (!isOpen) return;
-    apiRequest("/products?status=Active")
-      .then(setProducts)
-      .catch((err) => setError(err.message || "Failed to load products."));
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  const productMap = Object.fromEntries(products.map((p) => [p.productId, p]));
-  const updateItem = (i, field, value) =>
-    setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [field]: value } : it)));
-  const addRow = () => setItems((prev) => [...prev, { productId: "", qty: "" }]);
-  const removeRow = (i) => setItems((prev) => prev.filter((_, idx) => idx !== i));
-
-  const validItems = items.filter((it) => it.productId && Number(it.qty) > 0);
-  const subtotal = validItems.reduce((sum, it) => {
-    const p = productMap[it.productId];
-    return sum + (p ? p.unitPrice * Number(it.qty) : 0);
-  }, 0);
-
-  const reset = () => {
-    setCustomerId("");
-    setOrderType("Walk-in");
-    setDeliveryAddress("");
-    setItems([{ productId: "", qty: "" }]);
-    setMarkPaid(false);
-    setError("");
-  };
-
-  const handleSubmit = async () => {
-    if (orderType !== "Walk-in" && !customerId) {
-      return setError("Please select a customer for Pickup or Delivery orders.");
-    }
-    if (!validItems.length) return setError("Add at least one item.");
-    if (orderType === "Delivery" && !deliveryAddress) return setError("Delivery address is required.");
-
-    setIsSubmitting(true);
-    setError("");
-    try {
-      await apiRequest("/orders", {
-        method: "POST",
-        body: JSON.stringify({
-          customerId: customerId || undefined,
-          orderType,
-          items: validItems.map((it) => ({
-            productId: String(it.productId),
-            qty: Number(it.qty),
-            unitPrice: productMap[it.productId].unitPrice,
-          })),
-          deliveryAddress: orderType === "Delivery" ? deliveryAddress : undefined,
-          markPaid,
-          paymentMethod,
-        }),
-      });
-      onCreated();
-      reset();
-      onClose();
-    } catch (err) {
-      setError(err.message || "Failed to create order.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="od-modal-overlay open" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="od-modal">
-        <h3>New Order</h3>
-        {error && <p style={{ color: "#dc2626", fontWeight: 600 }}>{error}</p>}
-
-        <Field label="Order Type">
-          <select value={orderType} onChange={(e) => setOrderType(e.target.value)}>
-            <option>Walk-in</option>
-            <option>Pickup</option>
-            <option>Delivery</option>
-          </select>
-        </Field>
-
-        <Field label={orderType === "Walk-in" ? "Customer (optional)" : "Customer"}>
-          <select value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
-            <option value="">
-              {orderType === "Walk-in" ? "Walk-in Customer (no account)" : "Select customer"}
-            </option>
-            {customers.map((c) => (
-              <option key={c.id} value={c.id}>{c.name} ({c.phone})</option>
-            ))}
-          </select>
-        </Field>
-
-        {orderType === "Delivery" && (
-          <Field label="Delivery Address">
-            <input value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} />
-          </Field>
-        )}
-
-        <div className="od-items-header">
-          <span>Product</span><span>Qty</span><span>Price</span><span></span>
-        </div>
-        {items.map((it, idx) => {
-          const p = productMap[it.productId];
-          return (
-            <div key={idx} className="od-item-row">
-              <select value={it.productId} onChange={(e) => updateItem(idx, "productId", e.target.value)}>
-                <option value="">Select product</option>
-                {products.map((prod) => (
-                  <option key={prod.productId} value={prod.productId}>{prod.name}</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                min="1"
-                value={it.qty}
-                onChange={(e) => updateItem(idx, "qty", e.target.value)}
-                style={{ width: 60 }}
-              />
-              <span>{p ? peso(p.unitPrice) : "—"}</span>
-              <button type="button" className="od-btn od-btn-outline" onClick={() => removeRow(idx)}>×</button>
-            </div>
-          );
-        })}
-        <button type="button" className="od-btn od-btn-outline" onClick={addRow} style={{ marginTop: 8 }}>
-          + Add Item
-        </button>
-
-        <div className="od-totals">
-          <Row label="Subtotal:" value={peso(subtotal)} bold />
-        </div>
-
-        <hr />
-        <Field label="Mark as Paid">
-          <input type="checkbox" checked={markPaid} onChange={(e) => setMarkPaid(e.target.checked)} />
-        </Field>
-        {markPaid && (
-          <Field label="Payment Method">
-            <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-              <option>Cash</option>
-              <option>GCash</option>
-              <option>Card</option>
-              <option>Bank Transfer</option>
-            </select>
-          </Field>
-        )}
-
-        <div className="od-modal-actions">
-          <button className="od-btn od-btn-outline" onClick={onClose}>Cancel</button>
-          <button className="od-btn od-btn-primary" onClick={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? "Creating…" : "Create Order"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function OrderAndDelivery() {
-  const [customers, setCustomers] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [drivers, setDrivers] = useState([]);
-  const [tab, setTab] = useState("orders");
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState("");
-
-  const [ordersSearch, setOrdersSearch] = useState("");
-  const [ordersStatusFilter, setOrdersStatusFilter] = useState("");
-  const [ordersFulfillmentFilter, setOrdersFulfillmentFilter] = useState("");
-  const [deliverySearch, setDeliverySearch] = useState("");
-  const [deliveryStatusFilter, setDeliveryStatusFilter] = useState("");
-  const [customersSearch, setCustomersSearch] = useState("");
-
-  const [orderModal, setOrderModal] = useState(null);
-  const [isNewOrderOpen, setIsNewOrderOpen] = useState(false);
-  const [customerModal, setCustomerModal] = useState(null);
-  const [confirmDelete, setConfirmDelete] = useState(null);
-  const [toastMsg, setToastMsg] = useState("");
-  const [isSavingOrder, setIsSavingOrder] = useState(false);
-
-  const [showDeliveredConfirm, setShowDeliveredConfirm] = useState(false);
-
-  function showToast(msg) {
-    setToastMsg(msg);
-    window.clearTimeout(showToast._t);
-    showToast._t = window.setTimeout(() => setToastMsg(""), 2500);
-  }
-
-  const loadAll = () => {
-    setIsLoading(true);
-    Promise.all([
-      apiRequest("/customers"),
-      apiRequest("/orders"),
-      apiRequest("/users?role=Driver"),
-    ])
-      .then(([customerData, orderData, driverData]) => {
-        setCustomers(customerData);
-        setOrders(orderData);
-        setDrivers(driverData);
-        setLoadError("");
-      })
-      .catch((err) => setLoadError(err.message || "Failed to load data."))
-      .finally(() => setIsLoading(false));
-  };
-
-  useEffect(() => {
-    loadAll();
-  }, []);
-
-  const filteredOrders = orders.filter((o) => {
-    const q = ordersSearch.trim().toLowerCase();
-    const matchesSearch = !q || o.id.toLowerCase().includes(q) || (o.customerName || "").toLowerCase().includes(q);
-    const matchesStatus = !ordersStatusFilter || o.status === ordersStatusFilter;
-    const matchesFulfillment = !ordersFulfillmentFilter || o.type === ordersFulfillmentFilter;
-    return matchesSearch && matchesStatus && matchesFulfillment;
+  const user=JSON.parse(localStorage.getItem('user')||'{}');
+  const rider=isRiderRole(user.role);
+  const [tab,setTab]=useState(rider?'delivery':new URLSearchParams(window.location.search).get('tab')==='delivery'?'delivery':'pickup');
+  const [orders,setOrders]=useState([]),[customers,setCustomers]=useState([]),[riders,setRiders]=useState([]);
+  const [policy,setPolicy]=useState({allowIssueRefund:true,allowForfeitPayment:true,canSettle:false});
+  const [search,setSearch]=useState(''),[status,setStatus]=useState(''),[customerTypeFilter,setCustomerTypeFilter]=useState(''),[page,setPage]=useState(1);
+  const [loading,setLoading]=useState(true),[error,setError]=useState(''),[message,setMessage]=useState('');
+  const [modal,setModal]=useState(null),[form,setForm]=useState({}),[busy,setBusy]=useState(false),[modalError,setModalError]=useState('');
+  const request=useRef(0);
+  const load=useCallback(async()=>{
+    const version=++request.current;
+    try{
+      const [orderData,policyData,customerData,riderData]=await Promise.all([apiRequest(rider?'/orders/deliveries':'/orders'),apiRequest('/orders/policy'),rider?Promise.resolve([]):apiRequest('/customers'),rider?Promise.resolve([]):apiRequest('/orders/riders')]);
+      if(version!==request.current)return;
+      setOrders(orderData);setPolicy(policyData);setCustomers(customerData);setRiders(riderData);setError('');
+    }catch(err){if(version===request.current)setError(err.message);}
+    finally{if(version===request.current)setLoading(false);}
+  },[rider]);
+  useEffect(()=>{load();const timer=setInterval(load,30000);return()=>{clearInterval(timer);};},[load]);
+  useEffect(()=>{setPage(1);},[tab,search,status,customerTypeFilter]);
+  const pickups=orders.filter(o=>o.type==='Pick-up'),deliveries=orders.filter(o=>o.type==='Delivery');
+  const rows=(tab==='customers'?customers:tab==='delivery'?deliveries:pickups).filter(row=>{
+    const haystack=tab==='customers'?`${row.id} ${row.name} ${row.phone} ${row.address} ${row.landmark}`:`${row.id} ${row.customerName} ${row.customerPhone} ${row.drNo} ${row.deliveryAddress}`;
+    return haystack.toLowerCase().includes(search.toLowerCase()) && (!status || (tab==='delivery'?row.deliveryStatus:row.pickupStatus)===status) && (tab!=='customers' || !customerTypeFilter || row.type===customerTypeFilter);
   });
-
-  const openOrder = async (order) => {
-    try {
-      const full = await apiRequest(`/orders/${order.orderId}`);
-      setOrderModal(full);
-    } catch (err) {
-      showToast(err.message || "Failed to load order details.");
-    }
-  };
-
-  const handleDeliveryStatusSelect = (value) => {
-    if (value === "Delivered") {
-      setShowDeliveredConfirm(true);
-      return;
-    }
-    setOrderModal((prev) => ({ ...prev, deliveryStatus: value }));
-  };
-
-  const confirmDelivered = () => {
-    setOrderModal((prev) => ({ ...prev, deliveryStatus: "Delivered" }));
-    setShowDeliveredConfirm(false);
-  };
-
-  const saveOrder = async () => {
-    setIsSavingOrder(true);
-    try {
-      await apiRequest(`/orders/${orderModal.orderId}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          orderType: orderModal.type,
-          orderStatus: orderModal.status,
-          deliveryAddress:
-            orderModal.type === "Delivery" && !orderModal.deliveryId ? orderModal.deliveryAddress : undefined,
-        }),
-      });
-      if (orderModal.saleId) {
-        await apiRequest(`/orders/${orderModal.orderId}/payment`, {
-          method: "PUT",
-          body: JSON.stringify({
-            paymentMethod: orderModal.paymentMethod,
-            amountPaid: orderModal.paymentStatus === "Paid" ? orderModal.totalAmount : 0,
-          }),
-        });
-      }
-      if (orderModal.type === "Delivery") {
-        await apiRequest(`/orders/${orderModal.orderId}/delivery`, {
-          method: "PUT",
-          body: JSON.stringify({
-            deliveryStatus: orderModal.deliveryStatus,
-            deliveryRiderId: orderModal.deliveryRiderId || null,
-          }),
-        }).catch(() => {});
-      }
-      showToast(`Order ${orderModal.id} saved.`);
-      setOrderModal(null);
-      loadAll();
-    } catch (err) {
-      showToast(err.message || "Failed to save order.");
-    } finally {
-      setIsSavingOrder(false);
-    }
-  };
-
-  const deleteOrder = async (order) => {
-    try {
-      await apiRequest(`/orders/${order.orderId}`, { method: "DELETE" });
-      showToast(`Order ${order.id} cancelled and stock restored.`);
-      setConfirmDelete(null);
-      loadAll();
-    } catch (err) {
-      showToast(err.message || "Failed to cancel order.");
-    }
-  };
-
-  const deliveryRows = orders.filter((o) => o.type === "Delivery");
-
-  const filteredDelivery = deliveryRows.filter((d) => {
-    const q = deliverySearch.trim().toLowerCase();
-    const matchesSearch = !q || (d.drNo || "").toLowerCase().includes(q) || d.id.toLowerCase().includes(q);
-    const matchesStatus = !deliveryStatusFilter || d.deliveryStatus === deliveryStatusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  const filteredCustomers = customers.filter((c) => {
-    const q = customersSearch.trim().toLowerCase();
-    return !q || String(c.id).includes(q) || c.name.toLowerCase().includes(q);
-  });
-
-  function openAddCustomer() {
-    setCustomerModal({ name: "", phone: "", address: "", customerType: "Residential", isNew: true });
+  const currentPage=Math.min(page,Math.max(1,Math.ceil(rows.length/7)));
+  const visible=rows.slice((currentPage-1)*7,currentPage*7);
+  const close=useCallback(()=>{if(!busy){setModal(null);setModalError('');}},[busy]);
+  const update=(key,value)=>setForm(prev=>({...prev,[key]:value}));
+  async function openOrder(order,action='details') {
+    setModalError('');setError('');
+    try{
+      const full=await apiRequest(`/orders/${order.orderId}`);
+      setForm({remarks:full.remarks || '',scheduledPickupTime:full.scheduledPickupTime?.replace(' ','T').slice(0,16) || '',deliveryAddress:full.deliveryAddress || '',landmark:full.landmark || '',riderId:full.deliveryRiderId || '',paymentMethod:full.paymentMethod==='Cash on Delivery (COD)'?'Cash':full.paymentMethod || 'Cash',amountPaid:Math.max(0,Number(full.totalAmount)-Number(full.amountPaid)),reason:'',driverNotes:'',failureReason:failureReasons[0],restockConfirmed:true,resolutionAction:policy.allowIssueRefund?'Refunded':'Forfeited',refundDeliveryFee:true,emptyCylinderReturned:false,referenceNo:'',collectPayment:true});
+      setModal({kind:'order',order:full,action});
+    }catch(err){setError(err.message);}
   }
-  function openEditCustomer(c) {
-    setCustomerModal({ ...c, isNew: false });
-  }
-  const saveCustomer = async () => {
-    if (!customerModal.name.trim() || !customerModal.phone.trim()) {
-      showToast("Customer name and phone are required.");
-      return;
-    }
-    try {
-      if (customerModal.isNew) {
-        await apiRequest("/customers", {
-          method: "POST",
-          body: JSON.stringify({
-            name: customerModal.name.trim(),
-            phone: customerModal.phone.trim(),
-            address: customerModal.address.trim() || "N/A",
-            customerType: customerModal.customerType,
-          }),
-        });
-        showToast("Customer added.");
-      } else {
-        await apiRequest(`/customers/${customerModal.id}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            name: customerModal.name.trim(),
-            phone: customerModal.phone.trim(),
-            address: customerModal.address.trim() || "N/A",
-          }),
-        });
-        showToast("Customer updated.");
+  async function submit(e) {
+    e.preventDefault();if(busy)return;setBusy(true);setModalError('');
+    try{
+      if(modal.kind==='customer-delete'){
+        await apiRequest(`/customers/${modal.customer.id}`,{method:'DELETE'});
+        setCustomers(prev=>prev.filter(c=>c.id!==modal.customer.id));setMessage('Customer deleted.');
+      } else if(modal.kind==='customer-edit'){
+        await apiRequest(modal.customer?.id?`/customers/${modal.customer.id}`:'/customers',{method:modal.customer?.id?'PUT':'POST',body:JSON.stringify(form)});setMessage('Customer saved.');
+      } else if(modal.kind==='order'){
+        const {order}=modal;
+        const action=e.nativeEvent.submitter?.value==='assign' ? 'assign' : modal.action;
+        const payload=action==='details'?{riderId:form.riderId,remarks:form.remarks}:{...form,action};
+        await apiRequest(action==='details'?`/orders/${order.orderId}`:`/orders/${order.orderId}/actions`,{method:action==='details'?'PUT':'POST',body:JSON.stringify(payload)});
+        if (action==='assign' && modal.action==='dispatch') {
+          const full=await apiRequest(`/orders/${order.orderId}`);
+          setModal({kind:'order',order:full,action:'dispatch'});
+          setMessage('Rider assignment saved.');
+          await load();
+          return;
+        }
+        if(action==='cancel' && Number(order.amountPaid)>0){
+          const full=await apiRequest(`/orders/${order.orderId}`);setModal({kind:'order',order:full,action:'settle'});setForm(prev=>({...prev,reason:prev.reason}));setMessage('Cancelled; payment resolution is pending.');await load();return;
+        }
+        setMessage(action==='settle'?'Order restocked and settled.':'Order updated.');
       }
-      setCustomerModal(null);
-      loadAll();
-    } catch (err) {
-      showToast(err.message || "Failed to save customer.");
-    }
-  };
-  const deleteCustomer = async (customer) => {
-    try {
-      await apiRequest(`/customers/${customer.id}`, { method: "DELETE" });
-      showToast(`Customer ${customer.name} deactivated.`);
-      setConfirmDelete(null);
-      loadAll();
-    } catch (err) {
-      showToast(err.message || "Failed to deactivate customer.");
-    }
-  };
+      setModal(null);await load();
+    }catch(err){setModalError(err.message);}
+    finally{setBusy(false);}
+  }
+  async function print(order) {
+    try{
+      const full=await apiRequest(`/orders/${order.orderId}`);
+      await printReceipt(receiptFromOrder(full,full.type==='Pick-up'?'pickup':'delivery'));
+    }catch(err){setError(err.message);}
+  }
+  async function profile(customer) {
+    try{const history=await apiRequest(`/customers/${customer.id}/history`);setModal({kind:'profile',customer,history});}catch(err){setError(err.message);}
+  }
+  function editCustomer(customer=null) {
+    setModalError('');setForm({name:customer?.name || '',phone:customer?.phone || '',address:customer?.address || '',landmark:customer?.landmark || '',customerType:customer?.type==='Commercial'?'Commercial':'Residential'});setModal({kind:'customer-edit',customer});
+  }
+  const rowActions=order=><div className="od-actions od-lifecycle-actions">
+    {order.type==='Pick-up' && <>
+      {order.pickupStatus==='Preparing' && <button className="od-btn od-btn-outline" onClick={()=>openOrder(order,'ready')}>Mark Ready</button>}
+      {order.pickupStatus==='Ready for Pickup' && <button className="od-btn od-btn-primary" onClick={()=>openOrder(order,'claim')}>Complete Claim</button>}
+      {['Cancelled','Unclaimed'].includes(order.pickupStatus) && Number(order.amountPaid)>0 && <button className="od-btn od-btn-danger" disabled={!policy.canSettle} onClick={()=>openOrder(order,'settle')}>Restock & Settle</button>}
+      {order.pickupStatus==='Claimed' && order.paymentStatus==='Unpaid' && <button className="od-btn od-btn-primary" onClick={()=>openOrder(order,'pay')}>Collect Payment</button>}
+    </>}
+    {order.type==='Delivery' && <>
+      {!rider && ['Preparing','Failed Attempt','Out for Delivery'].includes(order.deliveryStatus) && <button className="od-btn od-btn-outline" onClick={()=>openOrder(order,order.deliveryStatus==='Out for Delivery'?'assign':'dispatch')}>{order.deliveryStatus==='Out for Delivery'?'Reassign Rider':'Dispatch'}</button>}
+      {order.deliveryStatus==='Out for Delivery' && <><button className="od-btn od-btn-primary" onClick={()=>openOrder(order,'delivered')}>Confirm Delivery</button><button className="od-btn od-btn-outline" onClick={()=>openOrder(order,'failed')}>Log Failed Attempt</button></>}
+      {!rider && order.deliveryStatus==='Delivered' && order.paymentStatus==='Unpaid' && <button className="od-btn od-btn-primary" onClick={()=>openOrder(order,'pay')}>Record Remittance</button>}
+      {!rider && ['Cancelled','Delivery Failed / Restocked'].includes(order.deliveryStatus) && Number(order.amountPaid)>0 && <button className="od-btn od-btn-danger" disabled={!policy.canSettle} onClick={()=>openOrder(order,'settle')}>Restock & Settle</button>}
+    </>}
+  </div>;
+  const iconActions=order=><div className="od-actions">
+    {!rider && <><button className="od-action-btn od-act-view" title="View / Edit" onClick={()=>openOrder(order)}><FileText size={18}/></button><button className="od-action-btn od-act-print" title="Print" onClick={()=>print(order)}><Printer size={18}/></button></>}
+    {!rider && !['Claimed','Cancelled','Unclaimed'].includes(order.pickupStatus) && !['Delivered','Cancelled','Delivery Failed / Restocked'].includes(order.deliveryStatus) && <button className="od-action-btn od-act-delete" title="Delete" onClick={()=>openOrder(order,'cancel')}><Trash2 size={18}/></button>}
+  </div>;
 
-  return (
-    <div className="od-page">
-      <h1 className="od-page-title">Order and Delivery</h1>
-
-      {loadError && <p style={{ color: "#dc2626", fontWeight: 600 }}>{loadError}</p>}
-
-      <div className="od-panel">
-        <div className="od-panel-header">
-          {tab === "orders" && (
-            <button className="od-btn od-btn-primary" onClick={() => setIsNewOrderOpen(true)}>
-              + New Order
-            </button>
-          )}
-          {tab === "customers" && (
-            <button className="od-btn od-btn-primary" onClick={openAddCustomer}>
-              + Add Customer
-            </button>
-          )}
-        </div>
-
-        <div className="od-tabs">
-          {[
-            { id: "orders", label: "Orders" },
-            { id: "delivery", label: "Delivery" },
-            { id: "customers", label: "Customers" },
-          ].map((t) => (
-            <button key={t.id} className={`od-tab ${tab === t.id ? "active" : ""}`} onClick={() => setTab(t.id)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {tab === "orders" && (
-          <section>
-            <div className="od-filters">
-              <div className="od-search-box">
-                <input value={ordersSearch} onChange={(e) => setOrdersSearch(e.target.value)} placeholder="Search Orders" />
-              </div>
-              <select value={ordersStatusFilter} onChange={(e) => setOrdersStatusFilter(e.target.value)}>
-                <option value="">Order Status</option>
-                <option>Preparing</option>
-                <option>Ready</option>
-                <option>Completed</option>
-                <option>Cancelled</option>
-              </select>
-              <select value={ordersFulfillmentFilter} onChange={(e) => setOrdersFulfillmentFilter(e.target.value)}>
-                <option value="">Fulfillment Type</option>
-                <option>Delivery</option>
-                <option>Walk-in</option>
-                <option>Pickup</option>
-              </select>
-            </div>
-
-            <div className="od-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Order ID</th><th>Customer</th><th>Order Type</th>
-                    <th>Order Status</th><th>Payment Status</th>
-                    <th>Total Amount</th><th>Date</th><th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading && (
-                    <tr><td colSpan={8} className="od-empty-state">Loading…</td></tr>
-                  )}
-                  {!isLoading && filteredOrders.map((o) => (
-                    <tr key={o.orderId}>
-                      <td>{o.id}</td>
-                      <td>{o.customerName || "—"}</td>
-                      <td>{o.type}</td>
-                      <td><Badge text={o.status} map={orderStatusClass} /></td>
-                      <td><Badge text={o.paymentStatus} map={paymentStatusClass} /></td>
-                      <td>{peso(o.totalAmount)}</td>
-                      <td>{new Date(o.date).toLocaleDateString()}</td>
-                      <td>
-                        <div className="od-actions">
-                          <button className="od-action-btn od-act-view" onClick={() => openOrder(o)} title="View/Edit">
-                            <IconView />
-                          </button>
-                          <button className="od-action-btn od-act-edit" onClick={() => openOrder(o)} title="Edit">
-                            <IconEdit />
-                          </button>
-                          <button
-                            className="od-action-btn od-act-print"
-                            onClick={async () => {
-                              try {
-                                const full = await apiRequest(`/orders/${o.orderId}`);
-                                printOrderReceipt(full);
-                              } catch (err) {
-                                showToast(err.message || "Failed to load order for printing.");
-                              }
-                            }}
-                            title="Print"
-                          >
-                            <IconPrint />
-                          </button>
-                          <button
-                            className="od-action-btn od-act-delete"
-                            onClick={() => setConfirmDelete({ kind: "order", order: o })}
-                            title="Cancel"
-                          >
-                            <IconDelete />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {!isLoading && filteredOrders.length === 0 && <p className="od-empty-state">No orders match your search.</p>}
-            </div>
-          </section>
-        )}
-
-        {tab === "delivery" && (
-          <section>
-            <div className="od-filters">
-              <div className="od-search-box">
-                <input value={deliverySearch} onChange={(e) => setDeliverySearch(e.target.value)} placeholder="Search Delivery / Order" />
-              </div>
-              <select value={deliveryStatusFilter} onChange={(e) => setDeliveryStatusFilter(e.target.value)}>
-                <option value="">Delivery Status</option>
-                <option>Pending</option>
-                <option>Out for Delivery</option>
-                <option>Delivered</option>
-                <option>Failed</option>
-              </select>
-            </div>
-
-            <div className="od-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Delivery No.</th><th>Order ID</th><th>Rider</th>
-                    <th>Delivery Status</th><th>Delivered At</th><th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredDelivery.map((d) => (
-                    <tr key={d.orderId}>
-                      <td>{d.drNo || "—"}</td>
-                      <td>{d.id}</td>
-                      <td>{d.deliveryRiderName || "Unassigned"}</td>
-                      <td>{d.deliveryStatus ? <Badge text={d.deliveryStatus} map={deliveryStatusClass} /> : "—"}</td>
-                      <td>{d.deliveredAt ? new Date(d.deliveredAt).toLocaleString() : "N/A"}</td>
-                      <td>
-                        <div className="od-actions">
-                          <button className="od-action-btn od-act-view" onClick={() => openOrder(d)} title="View/Edit">
-                            <IconView />
-                          </button>
-                          <button
-                            className="od-action-btn od-act-delete"
-                            onClick={() => setConfirmDelete({ kind: "order", order: d })}
-                            title="Cancel"
-                          >
-                            <IconDelete />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {filteredDelivery.length === 0 && <p className="od-empty-state">No delivery orders match your search.</p>}
-            </div>
-          </section>
-        )}
-
-        {tab === "customers" && (
-          <section>
-            <div className="od-filters">
-              <div className="od-search-box">
-                <input value={customersSearch} onChange={(e) => setCustomersSearch(e.target.value)} placeholder="Search Customer" />
-              </div>
-            </div>
-
-            <div className="od-table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Customer ID</th><th>Customer Name</th><th>Phone Number</th>
-                    <th>Address</th><th>Status</th><th>Created At</th><th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredCustomers.map((c) => (
-                    <tr key={c.id}>
-                      <td>{c.id}</td>
-                      <td>{c.name}</td>
-                      <td>{c.phone || "—"}</td>
-                      <td>{c.address || "—"}</td>
-                      <td><Badge text={c.status} map={{ Active: "od-badge-green", Inactive: "od-badge-red" }} /></td>
-                      <td>{new Date(c.created).toLocaleDateString()}</td>
-                      <td>
-                        <div className="od-actions">
-                          <button className="od-action-btn od-act-edit" onClick={() => openEditCustomer(c)} title="Edit">
-                            <IconEdit />
-                          </button>
-                          <button
-                            className="od-action-btn od-act-delete"
-                            onClick={() => setConfirmDelete({ kind: "customer", customer: c })}
-                            title="Deactivate"
-                          >
-                            <IconDelete />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {filteredCustomers.length === 0 && <p className="od-empty-state">No customers match your search.</p>}
-            </div>
-          </section>
-        )}
-      </div>
-
-      <NewOrderModal
-        isOpen={isNewOrderOpen}
-        onClose={() => setIsNewOrderOpen(false)}
-        onCreated={() => {
-          showToast("Order created.");
-          loadAll();
-        }}
-        customers={customers}
-      />
-
-      {orderModal && (
-        <div className="od-modal-overlay open" onClick={(e) => e.target === e.currentTarget && setOrderModal(null)}>
-          <div className="od-modal">
-            <h3>Order Details — {orderModal.id}</h3>
-            <Field label="Order Type">
-              <select
-                value={orderModal.type}
-                onChange={(e) => setOrderModal({ ...orderModal, type: e.target.value })}
-              >
-                <option>Delivery</option><option>Walk-in</option><option>Pickup</option>
-              </select>
-            </Field>
-            <Field label="Date"><input disabled value={new Date(orderModal.date).toLocaleString()} /></Field>
-            <Field label="Order Status">
-              <select
-                value={orderModal.status}
-                onChange={(e) => setOrderModal({ ...orderModal, status: e.target.value })}
-              >
-                <option>Preparing</option><option>Ready</option><option>Completed</option><option>Cancelled</option>
-              </select>
-            </Field>
-
-            <div className="od-items-header">
-              <span>Product Name</span><span>Qty</span><span>Unit Price</span><span>Subtotal</span>
-            </div>
-            {(orderModal.items || []).map((it, i) => (
-              <div key={i} className="od-item-row">
-                <span>{it.name}</span><span>{it.qty}</span><span>{peso(it.unitPrice)}</span><span>{peso(it.subtotal)}</span>
-              </div>
-            ))}
-            <div className="od-totals">
-              <Row label="Delivery Fee:" value={peso(orderModal.deliveryFee)} />
-              <Row label="Total Amount:" value={peso(orderModal.totalAmount)} bold />
-            </div>
-
-            <hr />
-            <Field label="Customer"><input disabled value={orderModal.customerName || ""} /></Field>
-            <Field label="Phone"><input disabled value={orderModal.customerPhone || ""} /></Field>
-            <Field label="Address"><input disabled value={orderModal.customerAddress || ""} /></Field>
-
-            <hr />
-            <Field label="Payment Method">
-              <select
-                value={orderModal.paymentMethod || "Cash"}
-                onChange={(e) => setOrderModal({ ...orderModal, paymentMethod: e.target.value })}
-              >
-                <option>Cash</option><option>GCash</option><option>Card</option><option>Bank Transfer</option>
-              </select>
-            </Field>
-            <Field label="Payment Status">
-              <select
-                value={orderModal.paymentStatus}
-                onChange={(e) => setOrderModal({ ...orderModal, paymentStatus: e.target.value })}
-              >
-                <option>Unpaid</option><option>Paid</option>
-              </select>
-            </Field>
-
-            {orderModal.type === "Delivery" && (
-              <>
-                <hr />
-                {orderModal.deliveryId ? (
-                  <>
-                    <Field label="Delivery No."><input disabled value={orderModal.drNo || ""} /></Field>
-                    <Field label="Delivery Rider">
-                      <select
-                        value={orderModal.deliveryRiderId || ""}
-                        onChange={(e) => setOrderModal({ ...orderModal, deliveryRiderId: e.target.value })}
-                      >
-                        <option value="">Unassigned</option>
-                        {drivers.map((d) => (
-                          <option key={d.id} value={d.id}>{d.name}</option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Delivery Status">
-                      <select
-                        value={orderModal.deliveryStatus || "Pending"}
-                        onChange={(e) => handleDeliveryStatusSelect(e.target.value)}
-                      >
-                        <option>Pending</option><option>Out for Delivery</option><option>Delivered</option><option>Failed</option>
-                      </select>
-                    </Field>
-                  </>
-                ) : (
-                  <Field label="Delivery Address (new)">
-                    <input
-                      value={orderModal.deliveryAddress || ""}
-                      onChange={(e) => setOrderModal({ ...orderModal, deliveryAddress: e.target.value })}
-                      placeholder="Enter the delivery address"
-                    />
-                  </Field>
-                )}
-              </>
-            )}
-
-            <div className="od-modal-actions">
-              <button className="od-btn od-btn-outline" onClick={() => setOrderModal(null)}>Cancel</button>
-              <button className="od-btn od-btn-primary" onClick={saveOrder} disabled={isSavingOrder}>
-                {isSavingOrder ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showDeliveredConfirm && (
-        <div className="od-modal-overlay open" onClick={(e) => e.target === e.currentTarget && setShowDeliveredConfirm(false)}>
-          <div className="od-modal od-modal-xs">
-            <h3>Mark as Delivered?</h3>
-            <p>Confirm that order {orderModal?.id} has been delivered to the customer.</p>
-            <div className="od-modal-actions">
-              <button className="od-btn od-btn-outline" onClick={() => setShowDeliveredConfirm(false)}>Cancel</button>
-              <button className="od-btn od-btn-primary" onClick={confirmDelivered}>Confirm Delivered</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {customerModal && (
-        <div className="od-modal-overlay open" onClick={(e) => e.target === e.currentTarget && setCustomerModal(null)}>
-          <div className="od-modal od-modal-sm">
-            <h3>{customerModal.isNew ? "Add Customer" : "Edit Customer"}</h3>
-            <Field label="Customer Name">
-              <input value={customerModal.name} onChange={(e) => setCustomerModal({ ...customerModal, name: e.target.value })} placeholder="Name" />
-            </Field>
-            <Field label="Phone Number">
-              <input value={customerModal.phone} onChange={(e) => setCustomerModal({ ...customerModal, phone: e.target.value })} placeholder="Phone Number" />
-            </Field>
-            <Field label="Address">
-              <textarea value={customerModal.address} onChange={(e) => setCustomerModal({ ...customerModal, address: e.target.value })} placeholder="Street, Brgy, City, Province, Zip Code" />
-            </Field>
-            {customerModal.isNew && (
-              <Field label="Customer Type">
-                <select
-                  value={customerModal.customerType}
-                  onChange={(e) => setCustomerModal({ ...customerModal, customerType: e.target.value })}
-                >
-                  <option>Residential</option>
-                  <option>Commercial</option>
-                </select>
-              </Field>
-            )}
-            <div className="od-modal-actions">
-              <button className="od-btn od-btn-outline" onClick={() => setCustomerModal(null)}>Cancel</button>
-              <button className="od-btn od-btn-primary" onClick={saveCustomer}>Save</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {confirmDelete && (
-        <div className="od-modal-overlay open" onClick={(e) => e.target === e.currentTarget && setConfirmDelete(null)}>
-          <div className="od-modal od-modal-xs">
-            <h3>{confirmDelete.kind === "order" ? "Cancel order?" : "Deactivate customer?"}</h3>
-            <p>
-              {confirmDelete.kind === "order"
-                ? `This will cancel order ${confirmDelete.order.id} and restore its stock. This cannot be undone.`
-                : `This will deactivate ${confirmDelete.customer.name}. They can be reactivated later.`}
-            </p>
-            <div className="od-modal-actions">
-              <button className="od-btn od-btn-outline" onClick={() => setConfirmDelete(null)}>Back</button>
-              <button
-                className="od-btn od-btn-danger"
-                onClick={() =>
-                  confirmDelete.kind === "order" ? deleteOrder(confirmDelete.order) : deleteCustomer(confirmDelete.customer)
-                }
-              >
-                {confirmDelete.kind === "order" ? "Cancel Order" : "Deactivate"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {toastMsg && <div className="od-toast show">{toastMsg}</div>}
-    </div>
-  );
+  const action=modal?.action,selected=modal?.order;
+  return <div className="od-page"><h1 className="od-page-title">Orders & Delivery</h1>
+    {error && <p role="alert" className="od-error">{error}</p>}{message && <p role="status">{message}</p>}
+    <div className="od-panel"><div className="od-tabs" role="tablist">
+      {(rider?[['delivery','Delivery',deliveries.length]]:[['pickup','Pick-up',pickups.length],['delivery','Delivery',deliveries.length],['customers','Customers',customers.length]]).map(([key,label,count])=><button key={key} role="tab" aria-selected={tab===key} className={`od-tab ${tab===key?'active':''}`} onClick={()=>{setTab(key);setSearch('');setStatus('');}}>{label} {key!=='customers' && <span className="od-tab-count">{count}</span>}</button>)}
+    </div><div className="od-filters"><div className="od-search-box"><input aria-label="Search" placeholder={tab==='customers'?'Search Customer':`Search ${tab==='pickup'?'Pick-up':'Delivery'} Orders`} value={search} onChange={e=>setSearch(e.target.value)}/></div>
+      {tab!=='customers' && <select aria-label="Filter status" value={status} onChange={e=>setStatus(e.target.value)}><option value="">All Statuses</option>{(tab==='pickup'?pickupStatuses:deliveryStatuses).map(s=><option key={s}>{s}</option>)}</select>}
+      {tab==='customers' && <select aria-label="Customer Type" value={customerTypeFilter} onChange={e=>setCustomerTypeFilter(e.target.value)}><option value="">All Customer Types</option><option>Residential</option><option>Commercial</option></select>}
+      {tab==='customers' && <button className="od-btn od-btn-primary" onClick={()=>editCustomer()}>+ Add Customer</button>}
+    </div><div className={`od-table-wrap${tab==='delivery'?' od-delivery-table':''}`}><table><thead><tr>
+      {(tab==='pickup'?['Order ID','Customer','Pickup Status','Payment Status','Total Amount','Date','Change Status','Actions']:tab==='delivery'?['Delivery No.','Order ID','Customer','Rider','Delivery Status','Attempts','Payment Status','Delivery Address','Change Status','Actions']:['Customer ID','Customer Name','Contact Number','Address','Customer Type','Total Orders Placed','Actions']).map(label=><th key={label}>{label}</th>)}
+    </tr></thead><tbody>
+      {loading?<tr><td colSpan={tab==='delivery'?10:tab==='pickup'?8:7} className="od-empty-state">Loading…</td></tr>:visible.map(row=><tr key={row.orderId||row.id}>
+        {tab==='pickup'?<><td>{row.id}</td><td>{row.customerName}<small className="od-cell-detail">{row.customerPhone || ' — '}</small></td><td><Badge value={row.pickupStatus}/>{row.lifecycleWarning && <small className="od-cell-detail od-error">{row.lifecycleWarning}</small>}</td><td><Badge value={row.paymentStatus}/></td><td>{peso(row.totalAmount)}</td><td>{date(row.scheduledPickupTime)}<small className="od-cell-detail">Deadline: {date(row.pickupDeadline)}</small></td><td>{rowActions(row)}</td><td>{iconActions(row)}</td></>:
+        tab==='delivery'?<><td>{row.drNo || ' — '}</td><td>{row.id}</td><td>{row.customerName}<small className="od-cell-detail">{row.customerPhone}</small></td><td>{row.deliveryRiderName || <Badge value="Unassigned"/>}</td><td><Badge value={row.deliveryStatus}/>{row.nextAttemptDate && <small className="od-cell-detail">Retry: {date(row.nextAttemptDate)}</small>}</td><td><Badge value={`Attempt ${row.attemptCount}/${row.maxAttempts}${Number(row.attemptCount)===3?' - Final':''}`}/></td><td><Badge value={row.paymentStatus}/><small className="od-cell-detail">{row.paymentMethod || (row.paymentStatus==='Unpaid'?'COD':' — ')}</small></td><td>{row.deliveryAddress || ' — '}</td><td>{rowActions(row)}</td><td>{iconActions(row)}</td></>:
+        <><td>{row.id}</td><td>{row.name}</td><td>{row.phone}</td><td>{['WALKIN','IMPORTED'].includes(row.phone)?' \u2014 ':row.address}</td><td>{row.type}</td><td>{row.totalOrders || 0}</td><td><div className="od-actions"><button className="od-action-btn od-act-view" title="View Profile & History" onClick={()=>profile(row)}><FileText size={18}/></button><button className="od-action-btn od-act-edit" title="Edit" onClick={()=>editCustomer(row)}><Pencil size={18}/></button><button className="od-action-btn od-act-delete" title="Delete" onClick={()=>{setModalError('');setModal({kind:'customer-delete',customer:row});}}><Trash2 size={18}/></button></div></td></>}
+      </tr>)}
+      {!loading && !visible.length && <tr><td colSpan={tab==='delivery'?10:tab==='pickup'?8:7} className="od-empty-state">No records match your search.</td></tr>}
+    </tbody></table><Pagination page={currentPage} total={rows.length} onChange={setPage}/></div></div>
+    {modal && <Modal title={modal.kind==='order'?({details:'Order Details / Edit',ready:'Mark Ready for Pickup',claim:'Complete Claim',pay:'Collect Payment / Remittance',assign:'Reassign Rider',dispatch:'Dispatch Delivery',failed:'Log Failed Attempt',delivered:'Confirm Delivery',cancel:'Cancel Order',settle:'Restock & Settle'}[action]):modal.kind==='profile'?'Customer Profile & History':modal.kind==='customer-delete'?'Delete Customer':modal.customer?'Edit Customer':'Add Customer'} onClose={close}>
+      {modalError && <p role="alert" className="od-error">{modalError}</p>}
+      {modal.kind==='profile'?<><p><strong>{modal.customer.name}</strong> · {modal.customer.phone}</p><p>{modal.customer.address} {modal.customer.landmark}</p>{modal.history.length?modal.history.map(o=><p key={o.orderId}>{o.id} · {o.type} · {date(o.date)} · {o.status} · {o.paymentStatus} · {peso(o.totalAmount)}</p>):<p>No order history.</p>}<button className="od-btn od-btn-outline" onClick={close}>Close</button></>:
+      <form onSubmit={submit}>
+        {modal.kind==='customer-delete'?<p>Are you sure you want to delete this customer? This action cannot be undone. Historical orders will be preserved.</p>:
+        modal.kind==='customer-edit'?<><Field label="Customer Name"><input required maxLength={150} value={form.name} onChange={e=>update('name',e.target.value)}/></Field><Field label="Contact Number"><input required maxLength={30} value={form.phone} onChange={e=>update('phone',e.target.value)}/></Field><Field label="Address"><textarea required value={form.address} onChange={e=>update('address',e.target.value)}/></Field><Field label="Customer Type"><select value={form.customerType} onChange={e=>update('customerType',e.target.value)}><option>Residential</option><option>Commercial</option></select></Field></>:
+        <><OrderSummary order={selected}/>
+          {action==='details' && <><p><Badge value={selected.pickupStatus || selected.deliveryStatus}/> <Badge value={selected.paymentStatus}/></p>{selected.type==='Pick-up'?<Field label="Scheduled Pickup Time"><input readOnly type="datetime-local" value={form.scheduledPickupTime}/><small>Pickup window: 3 days. Deadline: {date(selected.pickupDeadline)}</small></Field>:<><Field label="Delivery Address"><p>{selected.deliveryAddress}</p></Field><Field label="Delivery Instructions"><p>{selected.deliveryInstructions || ' \u2014 '}</p></Field><Field label="Assigned Delivery Rider"><select value={form.riderId} onChange={e=>update('riderId',e.target.value)}><option value="">Unassigned</option>{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></Field></>}<Field label="Notes">{selected.type==='Delivery'?<textarea maxLength={255} value={form.remarks} onChange={e=>update('remarks',e.target.value)}/>:<p>{selected.remarks || ' \u2014 '}</p>}</Field></>}
+          {(action==='pay' || (['claim','delivered'].includes(action) && selected.paymentStatus!=='Paid')) && <><p>Collect {peso(form.amountPaid)} before continuing.</p><Field label="Payment Method"><select value={form.paymentMethod} onChange={e=>update('paymentMethod',e.target.value)}>{['Cash','GCash','Card','Bank Transfer'].map(m=><option key={m}>{m}</option>)}</select></Field>{form.paymentMethod!=='Cash' && <Field label="Reference No."><input required maxLength={50} value={form.referenceNo || ''} onChange={e=>update('referenceNo',e.target.value)}/></Field>}</>}
+          {['dispatch','assign'].includes(action) && <><Field label="Assigned Rider"><select required value={form.riderId} onChange={e=>update('riderId',e.target.value)}><option value="">Select Rider</option>{riders.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>{selected.nextAttemptDate && <><p>Next business-day retry: {selected.nextAttemptDate} (Asia/Manila).</p></>}</>}
+          {action==='failed' && <><Field label="Failure Reason"><select required value={form.failureReason} onChange={e=>update('failureReason',e.target.value)}>{failureReasons.map(r=><option key={r}>{r}</option>)}</select></Field><Field label="Driver Notes (Required)"><textarea required maxLength={255} value={form.driverNotes} onChange={e=>update('driverNotes',e.target.value)}/></Field></>}
+          {['claim','delivered'].includes(action) && <EmptyCylinderReturns items={selected.items || []} value={form.emptyReturns || []} onChange={value=>update('emptyReturns',value)} disabled={busy}/>}
+          {action==='cancel' && <><p>{Number(selected.amountPaid)>0?'Paid orders require manager resolution after cancellation.':'This will restore the original stock quantities and archive the order.'}</p><Field label="Cancellation Remarks (Required)"><textarea required maxLength={255} value={form.reason} onChange={e=>update('reason',e.target.value)}/></Field></>}
+          {action==='settle' && <><label className="od-check"><input required type="checkbox" checked={form.restockConfirmed} onChange={e=>update('restockConfirmed',e.target.checked)}/>Automatically return {(selected.items||[]).map(i=>`${i.qty}x ${i.name}`).join(', ')} to stock</label>
+            {policy.allowIssueRefund && <label className="od-check"><input type="radio" name="resolution" checked={form.resolutionAction==='Refunded'} disabled={!policy.allowForfeitPayment} onChange={()=>update('resolutionAction','Refunded')}/>Issue Refund — {peso(Number(selected.amountPaid)-(form.refundDeliveryFee?0:Number(selected.deliveryFee||0)))}</label>}
+            {policy.allowForfeitPayment && <label className="od-check"><input type="radio" name="resolution" checked={form.resolutionAction==='Forfeited'} disabled={!policy.allowIssueRefund} onChange={()=>update('resolutionAction','Forfeited')}/>Forfeit Payment — retain {peso(selected.amountPaid)} as cancellation / logistics income</label>}
+            {selected.type==='Delivery' && form.resolutionAction==='Refunded' && <label className="od-check"><input type="checkbox" checked={form.refundDeliveryFee} onChange={e=>update('refundDeliveryFee',e.target.checked)}/>Refund full amount including delivery fee (uncheck to retain {peso(selected.deliveryFee)})</label>}
+            <Field label="Reason / Notes (Required)"><textarea required maxLength={255} value={form.reason} onChange={e=>update('reason',e.target.value)}/></Field>{!policy.canSettle && <p>Manager authorization is required.</p>}
+          </>}
+        </>}
+        <div className="od-modal-actions"><button type="button" className="od-btn od-btn-outline" disabled={busy} onClick={close}>Cancel</button>{action==='dispatch' && <button type="submit" name="action" value="assign" className="od-btn od-btn-outline" disabled={busy || !form.riderId}>Save Rider</button>}{!(action==='details' && selected?.type==='Pick-up') && <button type="submit" className={`od-btn ${['cancel','settle'].includes(action) || modal.kind==='customer-delete'?'od-btn-danger':'od-btn-primary'}`} disabled={busy || (action==='settle' && !policy.canSettle) || (action==='dispatch' && (!form.riderId || !selected.retryDue))}>{busy?'Saving…':action==='details' || modal.kind==='customer-edit'?'Save':action==='dispatch'?'Dispatch':'Confirm'}</button>}</div>
+      </form>}
+    </Modal>}
+  </div>;
 }
-
-
-
