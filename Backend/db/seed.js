@@ -1,4 +1,4 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const pool = require("../config/db");
 
@@ -502,7 +502,7 @@ async function seed() {
 
   await pool.query(`
     INSERT INTO \`User\` (UserID, CompanyID, RoleID, WarehouseID, FirstName, LastName, Email, PasswordHash, Status, ModuleAccess, CreatedAt) VALUES 
-    ('U-001', 'C-001', 'RL-001', NULL, 'Jose Ramon', 'Villanueva', 'jose.villanueva@gloriouscommercial.ph', '${defaultPasswordHash}', 'Active', '["Users"]', '2023-09-15 09:00:00'),
+    ('U-001', 'C-001', 'RL-001', NULL, 'Jose Ramon', 'Villanueva', 'jose.villanueva.admin@gmail.com', '${defaultPasswordHash}', 'Active', '["Users"]', '2023-09-15 09:00:00'),
     ('U-002', 'C-001', 'RL-002', 'WH-001', 'Maria Teresa', 'Santos', 'maria.santos@gloriouscommercial.ph', '${defaultPasswordHash}', 'Active', '["Dashboard", "Inventory", "Products", "Sales", "Suppliers", "Restocking", "Report Generation & Compliance", "Data Module", "Users"]', '2023-09-18 09:30:00'),
     ('U-003', 'C-001', 'RL-003', 'WH-002', 'Antonio', 'Bautista', 'antonio.bautista@gloriouscommercial.ph', '${defaultPasswordHash}', 'Active', '["Dashboard", "Inventory", "Products", "Sales", "Suppliers", "Restocking", "Report Generation & Compliance", "Data Module"]', '2023-09-18 10:00:00')
   `);
@@ -536,6 +536,10 @@ async function seed() {
   `);
 
   await pool.query("UPDATE Product SET UnitValue = LOWER(REGEXP_SUBSTR(ProductName, '[0-9]+([.][0-9]+)?[ ]*[kK][gG]')) WHERE UnitValue IS NULL AND ProductName REGEXP '[0-9]+([.][0-9]+)?[ ]*[kK][gG]'");
+  // Keep seeded databases compatible with the customer profile/history APIs.
+  await require("./migrate_customer_history")();
+  // Pickup queues and claims require all three pickup migration stages.
+  await require("./migrate_pickup_claim")();
   console.log("Database schema creation and seeding complete.");
   process.exit(0);
 }
